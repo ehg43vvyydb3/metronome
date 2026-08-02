@@ -967,7 +967,7 @@ function renderPlayWindow() {
       const localX1 = cm.x1 - info.line.box.x;
       const hx = localX0 * info.scaleFactor;
       const hw = (localX1 - localX0) * info.scaleFactor;
-      ctx.fillStyle = 'rgba(154, 230, 100, 0.10)';
+      ctx.fillStyle = leadInRemaining > 0 ? 'rgba(230, 60, 60, 0.10)' : 'rgba(154, 230, 100, 0.10)';
       ctx.fillRect(hx, info.y, hw, info.dh);
     }
   }
