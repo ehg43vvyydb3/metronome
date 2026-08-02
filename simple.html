@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>메트로놈</title>
+<style>
+  body {
+    font-family: sans-serif;
+    max-width: 420px;
+    margin: 40px auto;
+    padding: 0 16px;
+  }
+  h1 {
+    font-size: 20px;
+  }
+  fieldset {
+    margin-bottom: 16px;
+  }
+  label {
+    display: inline-block;
+    width: 100px;
+  }
+  #bpm {
+    width: 60px;
+    font-size: 16px;
+  }
+  .beats {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .beat {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #888;
+    text-align: center;
+    line-height: 32px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .beat.accent {
+    background: #333;
+    color: #fff;
+  }
+  .beat.current {
+    outline: 2px solid red;
+  }
+  #startStop {
+    font-size: 16px;
+    padding: 6px 16px;
+  }
+  select, input[type=text] {
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<h1>메트로놈</h1>
+
+<fieldset>
+  <legend>BPM</legend>
+  <button id="bpmMinus5">-5</button>
+  <button id="bpmMinus1">-1</button>
+  <input type="number" id="bpm" value="120" min="20" max="300">
+  <button id="bpmPlus1">+1</button>
+  <button id="bpmPlus5">+5</button>
+</fieldset>
+
+<fieldset>
+  <legend>박자</legend>
+  <label>박 수 (몇/4)</label>
+  <input type="number" id="beatsPerMeasure" value="4" min="1" max="12">
+  <br>
+  <label>음표 쪼개기</label>
+  <select id="subdivision">
+    <option value="1">4분음표</option>
+    <option value="2">8분음표</option>
+    <option value="4">16분음표</option>
+  </select>
+</fieldset>
+
+<fieldset>
+  <legend>강세 (클릭해서 토글)</legend>
+  <div class="beats" id="beatsDisplay"></div>
+</fieldset>
+
+<fieldset>
+  <legend>재생</legend>
+  <button id="startStop">시작</button>
+</fieldset>
+
+<fieldset>
+  <legend>프리셋</legend>
+  <input type="text" id="presetName" placeholder="프리셋 이름">
+  <button id="savePreset">저장</button>
+  <br><br>
+  <select id="presetList"></select>
+  <button id="loadPreset">불러오기</button>
+  <button id="deletePreset">삭제</button>
+</fieldset>
+
+<script>
+let audioCtx = null;
+let isPlaying = false;
+let currentBeat = 0;
+let currentSub = 0;
+let nextNoteTime = 0;
+let timerId = null;
+
+const lookahead = 25.0;
+const scheduleAheadTime = 0.1;
+
+const bpmInput = document.getElementById('bpm');
+const beatsPerMeasureInput = document.getElementById('beatsPerMeasure');
+const subdivisionSelect = document.getElementById('subdivision');
+const beatsDisplay = document.getElementById('beatsDisplay');
+const startStopBtn = document.getElementById('startStop');
+const presetName = document.getElementById('presetName');
+const presetList = document.getElementById('presetList');
+
+let accents = [true, false, false, false];
+
+function clampBpm(v) {
+  return Math.min(300, Math.max(20, v));
+}
+
+document.getElementById('bpmMinus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 5); };
+document.getElementById('bpmMinus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 1); };
+document.getElementById('bpmPlus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 1); };
+document.getElementById('bpmPlus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 5); };
+bpmInput.onchange = () => { bpmInput.value = clampBpm(+bpmInput.value || 120); };
+
+function renderBeats() {
+  const n = +beatsPerMeasureInput.value;
+  if (accents.length !== n) {
+    const newAccents = [];
+    for (let i = 0; i < n; i++) newAccents.push(accents[i] ?? (i === 0));
+    accents = newAccents;
+  }
+  beatsDisplay.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const div = document.createElement('div');
+    div.className = 'beat' + (accents[i] ? ' accent' : '');
+    div.textContent = i + 1;
+    div.onclick = () => {
+      accents[i] = !accents[i];
+      renderBeats();
+    };
+    beatsDisplay.appendChild(div);
+  }
+}
+beatsPerMeasureInput.onchange = renderBeats;
+renderBeats();
+
+function playClick(time, accent, isMainBeat) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = accent ? 1000 : (isMainBeat ? 800 : 600);
+  gain.gain.value = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.setValueAtTime(gain.gain.value, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+  osc.start(time);
+  osc.stop(time + 0.05);
+}
+
+function highlightBeat(beatIndex) {
+  document.querySelectorAll('.beat').forEach((el, i) => {
+    el.classList.toggle('current', i === beatIndex);
+  });
+}
+
+function nextNote() {
+  const bpm = +bpmInput.value;
+  const sub = +subdivisionSelect.value;
+  const secondsPerBeat = 60.0 / bpm / sub;
+  nextNoteTime += secondsPerBeat;
+
+  currentSub++;
+  if (currentSub >= sub) {
+    currentSub = 0;
+    currentBeat = (currentBeat + 1) % accents.length;
+  }
+}
+
+function scheduleNote() {
+  const isMainBeat = currentSub === 0;
+  const accent = isMainBeat && accents[currentBeat];
+  playClick(nextNoteTime, accent, isMainBeat);
+  if (isMainBeat) {
+    const beatToShow = currentBeat;
+    setTimeout(() => highlightBeat(beatToShow), Math.max(0, (nextNoteTime - audioCtx.currentTime) * 1000));
+  }
+}
+
+function scheduler() {
+  while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+    scheduleNote();
+    nextNote();
+  }
+  timerId = setTimeout(scheduler, lookahead);
+}
+
+function start() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  isPlaying = true;
+  currentBeat = 0;
+  currentSub = 0;
+  nextNoteTime = audioCtx.currentTime + 0.05;
+  scheduler();
+  startStopBtn.textContent = '정지';
+}
+
+function stop() {
+  isPlaying = false;
+  clearTimeout(timerId);
+  startStopBtn.textContent = '시작';
+  highlightBeat(-1);
+}
+
+startStopBtn.onclick = () => {
+  if (isPlaying) stop(); else start();
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  const el = document.activeElement;
+  if (el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.type === 'text') return;
+  e.preventDefault();
+  if (isPlaying) stop(); else start();
+});
+
+function getPresets() {
+  return JSON.parse(localStorage.getItem('metronomePresets') || '{}');
+}
+function savePresets(presets) {
+  localStorage.setItem('metronomePresets', JSON.stringify(presets));
+}
+function refreshPresetList() {
+  const presets = getPresets();
+  presetList.innerHTML = '';
+  Object.keys(presets).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    presetList.appendChild(opt);
+  });
+}
+refreshPresetList();
+
+document.getElementById('savePreset').onclick = () => {
+  const name = presetName.value.trim();
+  if (!name) return;
+  const presets = getPresets();
+  presets[name] = {
+    bpm: +bpmInput.value,
+    beatsPerMeasure: +beatsPerMeasureInput.value,
+    subdivision: subdivisionSelect.value,
+    accents: accents.slice()
+  };
+  savePresets(presets);
+  refreshPresetList();
+  presetName.value = '';
+};
+
+document.getElementById('loadPreset').onclick = () => {
+  const presets = getPresets();
+  const p = presets[presetList.value];
+  if (!p) return;
+  bpmInput.value = p.bpm;
+  beatsPerMeasureInput.value = p.beatsPerMeasure;
+  subdivisionSelect.value = p.subdivision;
+  accents = p.accents.slice();
+  renderBeats();
+};
+
+document.getElementById('deletePreset').onclick = () => {
+  const presets = getPresets();
+  delete presets[presetList.value];
+  savePresets(presets);
+  refreshPresetList();
+};
+</script>
+
+</body>
+</html>

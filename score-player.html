@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>악보 연동 메트로놈</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  body {
+    font-family: sans-serif;
+    max-width: 820px;
+    margin: 40px auto;
+    padding: 0 16px;
+  }
+  h1 { font-size: 20px; }
+  fieldset { margin-bottom: 16px; }
+  label { display: inline-block; width: 110px; }
+  #bpm { width: 60px; font-size: 16px; }
+  #status { color: #555; font-size: 13px; min-height: 18px; }
+  canvas { border: 1px solid #ccc; display: block; }
+  #playCanvas { cursor: pointer; }
+  #modeButtons button.active { background: #333; color: #fff; }
+  .hidden { display: none; }
+  .hint { color: #666; font-size: 13px; }
+  .beatBox {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 1px solid #888;
+    text-align: center;
+    line-height: 24px;
+    margin-left: 4px;
+    font-size: 12px;
+  }
+  .beatBox.current { outline: 2px solid red; }
+</style>
+</head>
+<body>
+
+<h1>악보 연동 메트로놈</h1>
+
+<fieldset>
+  <legend>악보 불러오기</legend>
+  <p class="hint">
+    PDF를 선택하면 자동으로 페이지 이미지로 변환해서 불러옵니다.
+    (Chrome/Edge는 폴더를 고르면 그 안에 page-N.png와 설정(meta.json)도 저장합니다)
+  </p>
+  <button id="pdfConvertBtn">PDF 변환해서 불러오기</button>
+  <input type="file" id="pdfFileInput" accept="application/pdf" class="hidden">
+  <p class="hint">이미 변환해둔 폴더가 있다면:</p>
+  <button id="folderBtn">폴더 불러오기</button>
+  <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden">
+  <div id="status"></div>
+  <div id="recentListArea" class="hint"></div>
+</fieldset>
+
+<fieldset>
+  <legend>BPM</legend>
+  <button id="bpmMinus5">-5</button>
+  <button id="bpmMinus1">-1</button>
+  <input type="number" id="bpm" value="105" min="20" max="300">
+  <button id="bpmPlus1">+1</button>
+  <button id="bpmPlus5">+5</button>
+</fieldset>
+
+<fieldset>
+  <legend>박자</legend>
+  <label>박 수 (몇/4)</label>
+  <input type="number" id="beatsPerMeasure" value="4" min="1" max="12">
+  <span id="beatIndicator"></span>
+  <br>
+  <label>음표 쪼개기</label>
+  <select id="subdivision">
+    <option value="1">4분음표</option>
+    <option value="2">8분음표</option>
+    <option value="4">16분음표</option>
+  </select>
+  <br>
+  <label>준비마디</label>
+  <input type="number" id="leadInMeasures" value="0" min="0" max="4">
+</fieldset>
+
+<fieldset id="modeButtons">
+  <legend>모드</legend>
+  <button id="modeAnnotateBtn">마디 지정</button>
+  <button id="modePlayBtn">재생</button>
+</fieldset>
+
+<div id="annotatePanel">
+  <p class="hint">
+    드래그로 한 줄(TAB 라인) 영역을 지정하세요. 줄의 시작/끝은 자동으로 잡히므로,
+    그 사이 마디를 나누는 경계만 왼쪽부터 순서대로 클릭하면 됩니다 (예: 4마디면 드래그 + 클릭 3번).
+    이미 찍은 점 근처를 다시 클릭하면 그 점이 삭제됩니다.
+    박스 모서리의 파란 점을 드래그하면 박스 크기를 조정할 수 있습니다.
+    편집 중인 박스 바깥에서 다시 드래그하면 지금 박스는 초안(보라색)으로 자동 저장되고 새 박스가 시작됩니다.
+    이 페이지에 여러 줄을 그린 뒤 "페이지 확정"으로 한 번에 저장하세요.
+    줄(보라색 초안 또는 초록 확정)을 클릭하면 선택되고(주황), Backspace로 삭제할 수 있습니다.
+  </p>
+  <div>
+    <button id="prevPage">이전 페이지</button>
+    <span id="pageInfo">페이지 -/-</span>
+    <button id="nextPage">다음 페이지</button>
+  </div>
+  <canvas id="annotateCanvas" width="760" height="400"></canvas>
+  <div>
+    <button id="cancelBoxBtn">박스 취소</button>
+    <button id="undoPointBtn">마지막 점 취소</button>
+    <button id="undoLastDraftBtn">마지막 초안 삭제</button>
+    <button id="confirmPageBtn">페이지 확정</button>
+    <button id="resetAllBtn">전체 초기화</button>
+  </div>
+  <div id="lineCount" class="hint"></div>
+</div>
+
+<div id="playPanel" class="hidden">
+  <div>
+    <button id="startStop">시작</button>
+    <button id="resetToStart">처음으로</button>
+    <span id="measureLabel">마디</span>
+    <input type="number" id="measureJumpInput" min="1" value="1" style="width:50px">
+    / <span id="measureTotal">0</span>
+  </div>
+  <div>
+    <label><input type="checkbox" id="loopEnabled"> 구간 반복</label>
+    <input type="number" id="loopStartInput" min="1" value="1" style="width:50px">
+    <button id="setLoopStartBtn">현재→시작</button>
+    ~
+    <input type="number" id="loopEndInput" min="1" value="1" style="width:50px">
+    <button id="setLoopEndBtn">현재→끝</button>
+  </div>
+  <canvas id="playCanvas" width="760" height="400"></canvas>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const CANVAS_WIDTH = 760;
+const PDF_RENDER_SCALE = 150 / 72;
+
+function mediaWidth(m) { return m.naturalWidth || m.width; }
+function mediaHeight(m) { return m.naturalHeight || m.height; }
+
+let songName = null;
+let currentDirHandle = null;
+let pageNumbers = [];
+let pageImagesByNum = new Map();
+let currentAnnotatePage = 1;
+let annotateScale = 1;
+
+let lines = [];
+let pageLines = [];
+let pendingBox = null;
+let pendingBarX = [];
+let dragStart = null;
+let resizeHandle = null;
+let selectedLineIdx = null;
+let selectedLineSource = null;
+
+const HANDLE_R = 6;
+
+function getHandles(box) {
+  return {
+    tl: { x: box.x, y: box.y },
+    tr: { x: box.x + box.w, y: box.y },
+    bl: { x: box.x, y: box.y + box.h },
+    br: { x: box.x + box.w, y: box.y + box.h }
+  };
+}
+
+function hitHandle(box, mx, my) {
+  const handles = getHandles(box);
+  for (const name in handles) {
+    const pt = handles[name];
+    if (Math.hypot(mx - pt.x, my - pt.y) <= HANDLE_R + 3) return name;
+  }
+  return null;
+}
+
+let measures = [];
+
+let currentLineIndex = 0;
+let windowStartLine = 0;
+let displayMeasureIdx = 0;
+
+let mode = 'annotate';
+
+const bpmInput = document.getElementById('bpm');
+const beatsPerMeasureInput = document.getElementById('beatsPerMeasure');
+const subdivisionSelect = document.getElementById('subdivision');
+const statusEl = document.getElementById('status');
+const folderInput = document.getElementById('folderInput');
+const annotateCanvas = document.getElementById('annotateCanvas');
+const playCanvas = document.getElementById('playCanvas');
+const pageInfo = document.getElementById('pageInfo');
+const lineCountEl = document.getElementById('lineCount');
+const measureLabelEl = document.getElementById('measureLabel');
+const measureJumpInput = document.getElementById('measureJumpInput');
+const measureTotalEl = document.getElementById('measureTotal');
+const loopEnabledInput = document.getElementById('loopEnabled');
+const loopStartInput = document.getElementById('loopStartInput');
+const loopEndInput = document.getElementById('loopEndInput');
+
+document.getElementById('setLoopStartBtn').onclick = () => { loopStartInput.value = displayMeasureIdx + 1; };
+document.getElementById('setLoopEndBtn').onclick = () => { loopEndInput.value = displayMeasureIdx + 1; };
+
+function getLoopBounds() {
+  const end0 = Math.min(measures.length - 1, Math.max(0, (+loopEndInput.value || measures.length) - 1));
+  const start0 = Math.max(0, Math.min(end0, (+loopStartInput.value || 1) - 1));
+  return { start0, end0 };
+}
+const annotatePanel = document.getElementById('annotatePanel');
+const playPanel = document.getElementById('playPanel');
+const modeAnnotateBtn = document.getElementById('modeAnnotateBtn');
+const modePlayBtn = document.getElementById('modePlayBtn');
+const startStopBtn = document.getElementById('startStop');
+const beatIndicatorEl = document.getElementById('beatIndicator');
+const leadInInput = document.getElementById('leadInMeasures');
+
+function status(msg) { statusEl.textContent = msg; }
+
+function renderBeatIndicator() {
+  const n = +beatsPerMeasureInput.value;
+  beatIndicatorEl.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('span');
+    b.className = 'beatBox';
+    b.textContent = i + 1;
+    beatIndicatorEl.appendChild(b);
+  }
+}
+
+function highlightBeatIndicator(i) {
+  Array.from(beatIndicatorEl.children).forEach((b, k) => b.classList.toggle('current', k === i));
+}
+
+function clampBpm(v) { return Math.min(300, Math.max(20, v)); }
+document.getElementById('bpmMinus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 5); };
+document.getElementById('bpmMinus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 1); };
+document.getElementById('bpmPlus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 1); };
+document.getElementById('bpmPlus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 5); };
+bpmInput.onchange = () => { bpmInput.value = clampBpm(+bpmInput.value || 120); saveState(); };
+beatsPerMeasureInput.onchange = saveState;
+beatsPerMeasureInput.addEventListener('input', renderBeatIndicator);
+subdivisionSelect.onchange = saveState;
+leadInInput.onchange = saveState;
+renderBeatIndicator();
+
+function storageKey() {
+  return `scorePlayer:${songName}`;
+}
+
+async function readMetaJson(dirHandle) {
+  try {
+    const fileHandle = await dirHandle.getFileHandle('meta.json');
+    const file = await fileHandle.getFile();
+    return JSON.parse(await file.text());
+  } catch (err) {
+    return null;
+  }
+}
+
+async function writeMetaJson(dirHandle, data) {
+  try {
+    const fileHandle = await dirHandle.getFileHandle('meta.json', { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify(data, null, 2));
+    await writable.close();
+  } catch (err) {
+    // read-only handle or write failure; localStorage still has the data
+  }
+}
+
+async function saveState() {
+  if (!songName) return;
+  const data = {
+    bpm: +bpmInput.value,
+    beatsPerMeasure: +beatsPerMeasureInput.value,
+    subdivision: subdivisionSelect.value,
+    leadInMeasures: +leadInInput.value,
+    lines: lines
+  };
+  localStorage.setItem(storageKey(), JSON.stringify(data));
+  if (currentDirHandle) {
+    await writeMetaJson(currentDirHandle, data);
+  }
+}
+
+async function loadState() {
+  if (currentDirHandle) {
+    const fromFile = await readMetaJson(currentDirHandle);
+    if (fromFile) {
+      localStorage.setItem(storageKey(), JSON.stringify(fromFile));
+      return fromFile;
+    }
+  }
+  const raw = localStorage.getItem(storageKey());
+  return raw ? JSON.parse(raw) : null;
+}
+
+function totalMeasures() {
+  return lines.reduce((sum, l) => sum + Math.max(0, l.barX.length - 1), 0);
+}
+
+function updateLineCount() {
+  const draftInfo = pageLines.length > 0 ? ` · 이 페이지 초안: ${pageLines.length}줄 (미확정)` : '';
+  lineCountEl.textContent = `확정된 줄: ${lines.length} / 마디: ${totalMeasures()}${draftInfo}`;
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+const pdfFileInput = document.getElementById('pdfFileInput');
+document.getElementById('pdfConvertBtn').onclick = () => pdfFileInput.click();
+
+pdfFileInput.onchange = async (e) => {
+  const file = e.target.files[0];
+  pdfFileInput.value = '';
+  if (!file) return;
+
+  status('PDF 변환 중...');
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+  const pdfSongName = file.name.replace(/\.pdf$/i, '');
+  let dirHandle = null;
+  if (window.showDirectoryPicker) {
+    try {
+      const parentDir = await window.showDirectoryPicker({ id: 'scores', mode: 'readwrite' });
+      dirHandle = await parentDir.getDirectoryHandle(pdfSongName, { create: true });
+      await addRecentDir(pdfSongName, dirHandle);
+    } catch (err) {
+      dirHandle = null;
+    }
+  }
+  currentDirHandle = dirHandle;
+
+  const newPageImages = new Map();
+  const newPageNumbers = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    status(`PDF 변환 중... (${i}/${pdf.numPages})`);
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+    newPageImages.set(i, canvas);
+    newPageNumbers.push(i);
+
+    if (dirHandle) {
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      const fileHandle = await dirHandle.getFileHandle(`page-${i}.png`, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    }
+  }
+
+  pageImagesByNum = newPageImages;
+  pageNumbers = newPageNumbers;
+  songName = pdfSongName;
+  currentAnnotatePage = pageNumbers[0];
+  pendingBox = null;
+  pendingBarX = [];
+  pageLines = [];
+  selectedLineIdx = null;
+
+  const savedMsg = dirHandle ? ' PNG/설정을 폴더에 저장했습니다.' : ' (PNG/설정 저장은 Chrome/Edge에서만 지원)';
+  const saved = await loadState();
+  if (saved) {
+    lines = saved.lines;
+    bpmInput.value = saved.bpm;
+    beatsPerMeasureInput.value = saved.beatsPerMeasure;
+    subdivisionSelect.value = saved.subdivision;
+    leadInInput.value = saved.leadInMeasures || 0;
+    status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 기존 마디 정보를 불러왔습니다.${savedMsg}`);
+  } else {
+    lines = [];
+    status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 마디를 지정해주세요.${savedMsg}`);
+  }
+  renderBeatIndicator();
+  updateLineCount();
+  renderAnnotatePage(currentAnnotatePage);
+};
+
+async function loadPagesFromFiles(files, name) {
+  const pngFiles = files.filter(f => /^page-\d+\.png$/i.test(f.name));
+  if (pngFiles.length === 0) {
+    status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
+    return;
+  }
+  status('이미지 불러오는 중...');
+  songName = name;
+  addRecentName(name);
+  renderRecentList();
+
+  pngFiles.sort((a, b) => {
+    const na = +a.name.match(/\d+/)[0];
+    const nb = +b.name.match(/\d+/)[0];
+    return na - nb;
+  });
+
+  pageImagesByNum = new Map();
+  pageNumbers = [];
+  for (const f of pngFiles) {
+    const num = +f.name.match(/\d+/)[0];
+    const img = await loadImage(f);
+    pageImagesByNum.set(num, img);
+    pageNumbers.push(num);
+  }
+  currentAnnotatePage = pageNumbers[0];
+  pendingBox = null;
+  pendingBarX = [];
+  pageLines = [];
+  selectedLineIdx = null;
+
+  const saved = await loadState();
+  if (saved) {
+    lines = saved.lines;
+    bpmInput.value = saved.bpm;
+    beatsPerMeasureInput.value = saved.beatsPerMeasure;
+    subdivisionSelect.value = saved.subdivision;
+    leadInInput.value = saved.leadInMeasures || 0;
+    status(`[${songName}] 기존 마디 정보를 불러왔습니다 (${lines.length}줄, ${totalMeasures()}마디)`);
+  } else {
+    lines = [];
+    status(`[${songName}] 새 곡입니다. 마디를 지정해주세요.`);
+  }
+  renderBeatIndicator();
+  updateLineCount();
+  renderAnnotatePage(currentAnnotatePage);
+}
+
+folderInput.onchange = async (e) => {
+  const files = Array.from(e.target.files);
+  const firstRelPath = files[0] && (files[0].webkitRelativePath || files[0].name);
+  const name = firstRelPath ? firstRelPath.split('/')[0] : 'unknown';
+  currentDirHandle = null;
+  await loadPagesFromFiles(files, name);
+};
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('scorePlayerDB', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value) {
+  const db = await idbOpen();
+  return new Promise((resolve) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(value, key);
+    tx.oncomplete = () => resolve();
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve) => {
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function getRecentDirs() {
+  if (!window.showDirectoryPicker) return [];
+  return (await idbGet('recentDirs')) || [];
+}
+
+async function addRecentDir(name, handle) {
+  let list = await getRecentDirs();
+  list = list.filter(item => item.name !== name);
+  list.unshift({ name, handle });
+  list = list.slice(0, 8);
+  await idbSet('recentDirs', list);
+  await renderRecentList();
+}
+
+function getRecentNames() {
+  const raw = localStorage.getItem('scorePlayer:recentNames');
+  return raw ? JSON.parse(raw) : [];
+}
+
+function addRecentName(name) {
+  let names = getRecentNames();
+  names = names.filter(n => n !== name);
+  names.unshift(name);
+  names = names.slice(0, 8);
+  localStorage.setItem('scorePlayer:recentNames', JSON.stringify(names));
+}
+
+async function loadFolderFromHandle(handle) {
+  const files = [];
+  for await (const entry of handle.values()) {
+    if (entry.kind === 'file' && /^page-\d+\.png$/i.test(entry.name)) {
+      files.push(await entry.getFile());
+    }
+  }
+  currentDirHandle = handle;
+  await loadPagesFromFiles(files, handle.name);
+}
+
+async function openRecentDir(handle) {
+  let perm = await handle.queryPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') return;
+  await loadFolderFromHandle(handle);
+}
+
+const recentListArea = document.getElementById('recentListArea');
+
+async function renderRecentList() {
+  const names = getRecentNames();
+  recentListArea.innerHTML = '';
+  if (names.length === 0) return;
+  const dirList = await getRecentDirs();
+  const handleByName = new Map(dirList.map(item => [item.name, item.handle]));
+
+  const label = document.createElement('span');
+  label.textContent = '최근 열기: ';
+  recentListArea.appendChild(label);
+
+  names.forEach(name => {
+    const btn = document.createElement('button');
+    btn.textContent = name;
+    const handle = handleByName.get(name);
+    if (handle) {
+      btn.onclick = () => openRecentDir(handle);
+    } else {
+      btn.onclick = () => {
+        status(`"${name}" 폴더를 다시 선택해주세요.`);
+        folderInput.click();
+      };
+    }
+    recentListArea.appendChild(btn);
+  });
+}
+
+document.getElementById('folderBtn').onclick = async () => {
+  if (!window.showDirectoryPicker) {
+    folderInput.click();
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ id: 'scores', mode: 'readwrite' });
+    await addRecentDir(handle.name, handle);
+    await loadFolderFromHandle(handle);
+  } catch (err) {
+    // user cancelled the picker
+  }
+};
+
+(async () => {
+  await renderRecentList();
+  if (!window.showDirectoryPicker) return;
+  const list = await getRecentDirs();
+  if (list.length === 0) return;
+  const perm = await list[0].handle.queryPermission({ mode: 'readwrite' });
+  if (perm === 'granted') {
+    await loadFolderFromHandle(list[0].handle);
+  }
+})();
+
+function renderAnnotatePage(pageNum) {
+  const img = pageImagesByNum.get(pageNum);
+  annotateScale = CANVAS_WIDTH / mediaWidth(img);
+  annotateCanvas.width = CANVAS_WIDTH;
+  annotateCanvas.height = mediaHeight(img) * annotateScale;
+  const ctx = annotateCanvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, annotateCanvas.width, annotateCanvas.height);
+  const idx = pageNumbers.indexOf(pageNum);
+  pageInfo.textContent = `페이지 ${idx + 1}/${pageNumbers.length}`;
+  drawAnnotateOverlays();
+}
+
+function drawLineBox(ctx, line, idx, isSelected, baseColor, baseFill, label) {
+  const x = line.box.x * annotateScale, y = line.box.y * annotateScale;
+  const w = line.box.w * annotateScale, h = line.box.h * annotateScale;
+  ctx.strokeStyle = isSelected ? 'orange' : baseColor;
+  ctx.lineWidth = isSelected ? 3 : 2;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.strokeStyle = isSelected ? 'orange' : baseColor;
+  ctx.lineWidth = 1;
+  for (let i = 1; i < line.barX.length - 1; i++) {
+    const bx = line.barX[i] * annotateScale;
+    ctx.beginPath();
+    ctx.moveTo(bx, y);
+    ctx.lineTo(bx, y + h);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = isSelected ? 'rgba(230,140,0,0.7)' : baseFill;
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`${label}${idx + 1} (${line.barX.length - 1}마디)`, x + 2, y - 4 < 10 ? y + 12 : y - 4);
+}
+
+function drawAnnotateOverlays() {
+  const ctx = annotateCanvas.getContext('2d');
+  lines.forEach((line, idx) => {
+    if (line.page !== currentAnnotatePage) return;
+    const isSelected = selectedLineSource === 'confirmed' && idx === selectedLineIdx;
+    drawLineBox(ctx, line, idx, isSelected, 'green', 'rgba(0,150,0,0.5)', '#');
+  });
+
+  pageLines.forEach((line, idx) => {
+    const isSelected = selectedLineSource === 'draft' && idx === selectedLineIdx;
+    drawLineBox(ctx, line, idx, isSelected, 'purple', 'rgba(140,0,150,0.6)', '초안#');
+  });
+
+  if (pendingBox) {
+    ctx.strokeStyle = 'blue';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(pendingBox.x, pendingBox.y, pendingBox.w, pendingBox.h);
+    ctx.setLineDash([]);
+    pendingBarX.forEach((x, i) => {
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, pendingBox.y);
+      ctx.lineTo(x, pendingBox.y + pendingBox.h);
+      ctx.stroke();
+      ctx.fillStyle = 'red';
+      ctx.fillText(String(i + 1), x + 2, pendingBox.y - 4 < 10 ? pendingBox.y + 12 : pendingBox.y - 4);
+    });
+    ctx.fillStyle = 'blue';
+    Object.values(getHandles(pendingBox)).forEach(pt => {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, HANDLE_R, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
+
+annotateCanvas.onmousedown = (e) => {
+  if (pendingBox) {
+    const h = hitHandle(pendingBox, e.offsetX, e.offsetY);
+    if (h) {
+      resizeHandle = h;
+      dragStart = null;
+      return;
+    }
+  }
+  dragStart = { x: e.offsetX, y: e.offsetY };
+};
+
+annotateCanvas.onmousemove = (e) => {
+  if (!resizeHandle || !pendingBox) return;
+  const mx = e.offsetX, my = e.offsetY;
+  let x = pendingBox.x, y = pendingBox.y;
+  let x2 = pendingBox.x + pendingBox.w, y2 = pendingBox.y + pendingBox.h;
+  if (resizeHandle === 'tl') { x = mx; y = my; }
+  else if (resizeHandle === 'tr') { x2 = mx; y = my; }
+  else if (resizeHandle === 'bl') { x = mx; y2 = my; }
+  else if (resizeHandle === 'br') { x2 = mx; y2 = my; }
+  pendingBox = {
+    x: Math.min(x, x2),
+    y: Math.min(y, y2),
+    w: Math.abs(x2 - x),
+    h: Math.abs(y2 - y)
+  };
+  drawAnnotateOverlaysFresh();
+};
+
+annotateCanvas.onmouseleave = () => {
+  resizeHandle = null;
+  dragStart = null;
+};
+
+function pointInPendingBox(px, py) {
+  if (!pendingBox) return false;
+  return px >= pendingBox.x && px <= pendingBox.x + pendingBox.w &&
+         py >= pendingBox.y && py <= pendingBox.y + pendingBox.h;
+}
+
+annotateCanvas.onmouseup = (e) => {
+  if (resizeHandle) {
+    resizeHandle = null;
+    return;
+  }
+  if (!dragStart) return;
+  const dx = e.offsetX - dragStart.x, dy = e.offsetY - dragStart.y;
+  const moved = Math.max(Math.abs(dx), Math.abs(dy));
+
+  if (moved < 6) {
+    if (pendingBox) {
+      handleAnnotateClick(e.offsetX);
+    } else {
+      selectLineAt(e.offsetX, e.offsetY);
+    }
+  } else if (!pendingBox || !pointInPendingBox(dragStart.x, dragStart.y)) {
+    if (pendingBox) addPendingAsDraft();
+    pendingBox = {
+      x: Math.min(dragStart.x, e.offsetX),
+      y: Math.min(dragStart.y, e.offsetY),
+      w: Math.abs(dx),
+      h: Math.abs(dy)
+    };
+    pendingBarX = [];
+    selectedLineIdx = null;
+    selectedLineSource = null;
+    drawAnnotateOverlaysFresh();
+  }
+  dragStart = null;
+};
+
+function drawAnnotateOverlaysFresh() {
+  renderAnnotatePage(currentAnnotatePage);
+}
+
+function handleAnnotateClick(x) {
+  if (!pendingBox) return;
+  const nearIdx = pendingBarX.findIndex(px => Math.abs(px - x) < 8);
+  if (nearIdx >= 0) {
+    pendingBarX.splice(nearIdx, 1);
+  } else {
+    pendingBarX.push(x);
+  }
+  drawAnnotateOverlaysFresh();
+}
+
+function boxHit(line, mx, my) {
+  const x = line.box.x * annotateScale, y = line.box.y * annotateScale;
+  const w = line.box.w * annotateScale, h = line.box.h * annotateScale;
+  return mx >= x && mx <= x + w && my >= y && my <= y + h;
+}
+
+function selectLineAt(mx, my) {
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  lines.forEach((line, idx) => {
+    if (line.page !== currentAnnotatePage) return;
+    if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'confirmed'; }
+  });
+  pageLines.forEach((line, idx) => {
+    if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'draft'; }
+  });
+  drawAnnotateOverlaysFresh();
+}
+
+document.getElementById('cancelBoxBtn').onclick = () => {
+  pendingBox = null;
+  pendingBarX = [];
+  drawAnnotateOverlaysFresh();
+};
+
+document.getElementById('undoPointBtn').onclick = () => {
+  pendingBarX.pop();
+  drawAnnotateOverlaysFresh();
+};
+
+function addPendingAsDraft() {
+  if (!pendingBox) return false;
+  const fullBarX = [pendingBox.x, pendingBox.x + pendingBox.w, ...pendingBarX].sort((a, b) => a - b);
+  pageLines.push({
+    page: currentAnnotatePage,
+    box: {
+      x: pendingBox.x / annotateScale,
+      y: pendingBox.y / annotateScale,
+      w: pendingBox.w / annotateScale,
+      h: pendingBox.h / annotateScale
+    },
+    barX: fullBarX.map(x => x / annotateScale)
+  });
+  pendingBox = null;
+  pendingBarX = [];
+  updateLineCount();
+  return true;
+}
+
+document.getElementById('undoLastDraftBtn').onclick = () => {
+  pageLines.pop();
+  if (selectedLineSource === 'draft') { selectedLineIdx = null; selectedLineSource = null; }
+  updateLineCount();
+  drawAnnotateOverlaysFresh();
+};
+
+document.getElementById('confirmPageBtn').onclick = () => {
+  addPendingAsDraft();
+  if (pageLines.length === 0) {
+    alert('확정할 줄이 없습니다. 먼저 드래그로 줄을 그려주세요.');
+    return;
+  }
+  lines.push(...pageLines);
+  pageLines = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  updateLineCount();
+  saveState();
+  drawAnnotateOverlaysFresh();
+};
+
+document.getElementById('resetAllBtn').onclick = () => {
+  if (!confirm('전체 마디 지정을 초기화할까요?')) return;
+  lines = [];
+  pageLines = [];
+  pendingBox = null;
+  pendingBarX = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  updateLineCount();
+  saveState();
+  drawAnnotateOverlaysFresh();
+};
+
+function goToPage(newPage) {
+  if (pageLines.length > 0 && !confirm('확정하지 않은 초안 줄이 있습니다. 페이지를 이동하면 사라집니다. 계속할까요?')) return;
+  currentAnnotatePage = newPage;
+  pendingBox = null;
+  pendingBarX = [];
+  pageLines = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  updateLineCount();
+  renderAnnotatePage(currentAnnotatePage);
+}
+
+document.getElementById('prevPage').onclick = () => {
+  const idx = pageNumbers.indexOf(currentAnnotatePage);
+  if (idx <= 0) return;
+  goToPage(pageNumbers[idx - 1]);
+};
+document.getElementById('nextPage').onclick = () => {
+  const idx = pageNumbers.indexOf(currentAnnotatePage);
+  if (idx < 0 || idx >= pageNumbers.length - 1) return;
+  goToPage(pageNumbers[idx + 1]);
+};
+
+function deleteSelectedLine() {
+  if (selectedLineIdx === null) return;
+  if (selectedLineSource === 'confirmed') {
+    lines.splice(selectedLineIdx, 1);
+    saveState();
+  } else if (selectedLineSource === 'draft') {
+    pageLines.splice(selectedLineIdx, 1);
+  }
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  updateLineCount();
+  drawAnnotateOverlaysFresh();
+}
+
+function computeMeasures() {
+  measures = [];
+  lines.forEach((line, li) => {
+    for (let i = 0; i < line.barX.length - 1; i++) {
+      measures.push({ lineIndex: li, x0: line.barX[i], x1: line.barX[i + 1] });
+    }
+  });
+}
+
+let lastDrawInfos = [];
+
+function computeLineInfos(startLine, count) {
+  const windowLines = lines.slice(startLine, startLine + count);
+  const gap = 14;
+  let y = 0;
+  const infos = [];
+  windowLines.forEach(line => {
+    const scaleFactor = CANVAS_WIDTH / line.box.w;
+    const dh = line.box.h * scaleFactor;
+    infos.push({ line, y, dh, scaleFactor });
+    y += dh + gap;
+  });
+  return { infos, totalHeight: Math.max(1, y - gap) };
+}
+
+function drawLineInfosToCanvas(ctx, infos) {
+  infos.forEach(info => {
+    const img = pageImagesByNum.get(info.line.page);
+    ctx.drawImage(
+      img,
+      info.line.box.x, info.line.box.y, info.line.box.w, info.line.box.h,
+      0, info.y, CANVAS_WIDTH, info.dh
+    );
+  });
+}
+
+function animateLineSlide(oldStart, newStart) {
+  return new Promise(resolve => {
+    const span = newStart - oldStart + 3;
+    const { infos, totalHeight } = computeLineInfos(oldStart, span);
+    const targetIdx = newStart - oldStart;
+    if (infos.length === 0 || !infos[targetIdx]) { resolve(); return; }
+
+    const strip = document.createElement('canvas');
+    strip.width = CANVAS_WIDTH;
+    strip.height = totalHeight;
+    drawLineInfosToCanvas(strip.getContext('2d'), infos);
+
+    const slideDistance = infos[targetIdx].y;
+    const viewportHeight = playCanvas.height;
+    const ctx = playCanvas.getContext('2d');
+    const duration = 320;
+    const t0 = performance.now();
+
+    function frame(now) {
+      const t = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const offset = eased * slideDistance;
+      ctx.clearRect(0, 0, playCanvas.width, playCanvas.height);
+      ctx.drawImage(strip, 0, offset, strip.width, viewportHeight, 0, 0, strip.width, viewportHeight);
+      if (t < 1) requestAnimationFrame(frame);
+      else resolve();
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+function renderPlayWindow() {
+  if (lines.length === 0) return;
+  const { infos: drawInfos, totalHeight } = computeLineInfos(windowStartLine, 3);
+  lastDrawInfos = drawInfos;
+  const ctx = playCanvas.getContext('2d');
+  playCanvas.width = CANVAS_WIDTH;
+  playCanvas.height = totalHeight;
+  ctx.clearRect(0, 0, playCanvas.width, playCanvas.height);
+  drawLineInfosToCanvas(ctx, drawInfos);
+
+  const cm = measures[displayMeasureIdx];
+  if (cm) {
+    const relIdx = cm.lineIndex - windowStartLine;
+    if (relIdx >= 0 && relIdx < drawInfos.length) {
+      const info = drawInfos[relIdx];
+      const localX0 = cm.x0 - info.line.box.x;
+      const localX1 = cm.x1 - info.line.box.x;
+      const hx = localX0 * info.scaleFactor;
+      const hw = (localX1 - localX0) * info.scaleFactor;
+      ctx.fillStyle = 'rgba(154, 230, 100, 0.10)';
+      ctx.fillRect(hx, info.y, hw, info.dh);
+    }
+  }
+  measureLabelEl.textContent = '마디';
+  measureJumpInput.disabled = false;
+  measureJumpInput.max = measures.length;
+  if (document.activeElement !== measureJumpInput) {
+    measureJumpInput.value = displayMeasureIdx + 1;
+  }
+  measureTotalEl.textContent = measures.length;
+}
+
+function jumpToTypedMeasure() {
+  if (measures.length === 0) return;
+  let n = parseInt(measureJumpInput.value, 10);
+  if (isNaN(n)) n = displayMeasureIdx + 1;
+  n = Math.min(measures.length, Math.max(1, n));
+  measureJumpInput.value = n;
+  if (isPlaying) stopPlayback();
+  updateMeasureDisplay(n - 1);
+}
+
+measureJumpInput.addEventListener('change', jumpToTypedMeasure);
+measureJumpInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    jumpToTypedMeasure();
+    measureJumpInput.blur();
+  }
+});
+
+function updateMeasureDisplay(idx) {
+  displayMeasureIdx = idx;
+  const line = measures[idx] ? measures[idx].lineIndex : currentLineIndex;
+  currentLineIndex = line;
+  const oldWindowStartLine = windowStartLine;
+  if (line < windowStartLine || line >= windowStartLine + 2) {
+    windowStartLine = line;
+  }
+  if (isPlaying && windowStartLine === oldWindowStartLine + 2) {
+    animateLineSlide(oldWindowStartLine, windowStartLine).then(renderPlayWindow);
+  } else {
+    renderPlayWindow();
+  }
+}
+
+function measureAtPoint(mx, my) {
+  for (let k = 0; k < lastDrawInfos.length; k++) {
+    const info = lastDrawInfos[k];
+    if (my < info.y || my > info.y + info.dh) continue;
+    const lineIdx = windowStartLine + k;
+    for (let i = 0; i < measures.length; i++) {
+      const m = measures[i];
+      if (m.lineIndex !== lineIdx) continue;
+      const localX0 = (m.x0 - info.line.box.x) * info.scaleFactor;
+      const localX1 = (m.x1 - info.line.box.x) * info.scaleFactor;
+      if (mx >= localX0 && mx <= localX1) return i;
+    }
+  }
+  return null;
+}
+
+playCanvas.onclick = (e) => {
+  const idx = measureAtPoint(e.offsetX, e.offsetY);
+  if (idx === null) return;
+  if (isPlaying) stopPlayback();
+  updateMeasureDisplay(idx);
+};
+
+modeAnnotateBtn.onclick = () => setMode('annotate');
+modePlayBtn.onclick = () => setMode('play');
+
+function setMode(m) {
+  if (m === 'play' && lines.length === 0) {
+    alert('먼저 마디 지정 모드에서 마디를 지정해주세요.');
+    return;
+  }
+  mode = m;
+  modeAnnotateBtn.classList.toggle('active', m === 'annotate');
+  modePlayBtn.classList.toggle('active', m === 'play');
+  annotatePanel.classList.toggle('hidden', m !== 'annotate');
+  playPanel.classList.toggle('hidden', m !== 'play');
+  if (m === 'play') {
+    computeMeasures();
+    currentLineIndex = 0;
+    windowStartLine = 0;
+    displayMeasureIdx = 0;
+    loopStartInput.max = measures.length;
+    loopEndInput.max = measures.length;
+    if (!loopEndInput.value || +loopEndInput.value > measures.length) loopEndInput.value = measures.length;
+    renderPlayWindow();
+  }
+}
+
+document.getElementById('resetToStart').onclick = () => {
+  if (isPlaying) stopPlayback();
+  currentLineIndex = 0;
+  windowStartLine = 0;
+  updateMeasureDisplay(0);
+};
+
+let audioCtx = null;
+let isPlaying = false;
+let nextNoteTime = 0;
+let timerId = null;
+let subIdx = 0;
+let beatInMeasure = 0;
+let measureIdx = 0;
+let leadInRemaining = 0;
+let leadInTotal = 0;
+
+const lookahead = 25.0;
+const scheduleAheadTime = 0.1;
+
+function playClick(time, accent, isMainBeat) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = accent ? 1000 : (isMainBeat ? 800 : 600);
+  gain.gain.value = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.setValueAtTime(gain.gain.value, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+  osc.start(time);
+  osc.stop(time + 0.05);
+}
+
+function scheduleNote() {
+  const isMainBeat = subIdx === 0;
+  const isDownbeat = isMainBeat && beatInMeasure === 0;
+  const inLeadIn = leadInRemaining > 0;
+  playClick(nextNoteTime, isDownbeat, isMainBeat);
+  if (isMainBeat) {
+    const bIdx = beatInMeasure;
+    const delay = Math.max(0, (nextNoteTime - audioCtx.currentTime) * 1000);
+    setTimeout(() => highlightBeatIndicator(bIdx), delay);
+  }
+  if (isDownbeat) {
+    const delay = Math.max(0, (nextNoteTime - audioCtx.currentTime) * 1000);
+    if (inLeadIn) {
+      const leadInMeasureNum = leadInTotal - leadInRemaining + 1;
+      setTimeout(() => {
+        measureLabelEl.textContent = '준비';
+        measureJumpInput.disabled = true;
+        measureJumpInput.value = leadInMeasureNum;
+        measureTotalEl.textContent = leadInTotal;
+      }, delay);
+    } else {
+      const idx = measureIdx;
+      setTimeout(() => updateMeasureDisplay(idx), delay);
+    }
+  }
+}
+
+function nextNote() {
+  const bpm = +bpmInput.value;
+  const sub = +subdivisionSelect.value;
+  const beatsPerMeasure = +beatsPerMeasureInput.value;
+  const secondsPerBeat = 60.0 / bpm / sub;
+  nextNoteTime += secondsPerBeat;
+
+  subIdx++;
+  if (subIdx >= sub) {
+    subIdx = 0;
+    beatInMeasure++;
+    if (beatInMeasure >= beatsPerMeasure) {
+      beatInMeasure = 0;
+      if (leadInRemaining > 0) {
+        leadInRemaining--;
+      } else {
+        measureIdx++;
+        if (loopEnabledInput.checked && measures.length > 0) {
+          const { start0, end0 } = getLoopBounds();
+          if (measureIdx > end0) measureIdx = start0;
+        }
+      }
+    }
+  }
+}
+
+function scheduler() {
+  while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+    if (measureIdx >= measures.length) {
+      stopPlayback();
+      return;
+    }
+    scheduleNote();
+    nextNote();
+  }
+  timerId = setTimeout(scheduler, lookahead);
+}
+
+function startPlayback() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  computeMeasures();
+  if (measures.length === 0) { alert('마디가 없습니다.'); return; }
+  isPlaying = true;
+  measureIdx = displayMeasureIdx;
+  beatInMeasure = 0;
+  subIdx = 0;
+  leadInTotal = Math.max(0, +leadInInput.value || 0);
+  leadInRemaining = leadInTotal;
+  nextNoteTime = audioCtx.currentTime + 0.05;
+  updateMeasureDisplay(measureIdx);
+  highlightBeatIndicator(0);
+  scheduler();
+  startStopBtn.textContent = '정지';
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  clearTimeout(timerId);
+  startStopBtn.textContent = '시작';
+  highlightBeatIndicator(-1);
+  if (loopEnabledInput.checked && measures.length > 0) {
+    const { start0 } = getLoopBounds();
+    updateMeasureDisplay(start0);
+  } else {
+    renderPlayWindow();
+  }
+}
+
+startStopBtn.onclick = () => {
+  if (isPlaying) stopPlayback(); else startPlayback();
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  const el = document.activeElement;
+  if (el.tagName === 'SELECT' || el.tagName === 'BUTTON') return;
+  if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'checkbox')) return;
+  if (mode !== 'play') return;
+  e.preventDefault();
+  if (isPlaying) stopPlayback(); else startPlayback();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Backspace') return;
+  if (mode !== 'annotate' || selectedLineIdx === null) return;
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  e.preventDefault();
+  deleteSelectedLine();
+});
+
+setMode('annotate');
+</script>
+
+</body>
+</html>
