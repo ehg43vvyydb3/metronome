@@ -927,7 +927,7 @@ function renderPlayWindow() {
   drawLineInfosToCanvas(ctx, drawInfos);
 
   const cm = measures[displayMeasureIdx];
-  if (cm) {
+  if (cm && (leadInRemaining === 0 || leadInBlinkOn)) {
     const relIdx = cm.lineIndex - windowStartLine;
     if (relIdx >= 0 && relIdx < drawInfos.length) {
       const info = drawInfos[relIdx];
@@ -1045,6 +1045,7 @@ let beatInMeasure = 0;
 let measureIdx = 0;
 let leadInRemaining = 0;
 let leadInTotal = 0;
+let leadInBlinkOn = true;
 
 const lookahead = 25.0;
 const scheduleAheadTime = 0.1;
@@ -1071,6 +1072,12 @@ function scheduleNote() {
     const bIdx = beatInMeasure;
     const delay = Math.max(0, (nextNoteTime - audioCtx.currentTime) * 1000);
     setTimeout(() => highlightBeatIndicator(bIdx), delay);
+    if (inLeadIn) {
+      setTimeout(() => {
+        leadInBlinkOn = !leadInBlinkOn;
+        renderPlayWindow();
+      }, delay);
+    }
   }
   if (isDownbeat) {
     const delay = Math.max(0, (nextNoteTime - audioCtx.currentTime) * 1000);
@@ -1137,6 +1144,7 @@ function startPlayback() {
   subIdx = 0;
   leadInTotal = Math.max(0, +leadInInput.value || 0);
   leadInRemaining = leadInTotal;
+  leadInBlinkOn = true;
   nextNoteTime = audioCtx.currentTime + 0.05;
   updateMeasureDisplay(measureIdx);
   highlightBeatIndicator(0);
@@ -1149,6 +1157,8 @@ function stopPlayback() {
   clearTimeout(timerId);
   startStopBtn.textContent = '시작';
   highlightBeatIndicator(-1);
+  leadInRemaining = 0;
+  leadInBlinkOn = true;
   if (loopEnabledInput.checked && measures.length > 0) {
     const { start0 } = getLoopBounds();
     updateMeasureDisplay(start0);
