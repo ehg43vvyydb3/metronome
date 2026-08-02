@@ -120,7 +120,8 @@
     / <span id="measureTotal">0</span>
   </div>
   <div>
-    <label><input type="checkbox" id="loopEnabled"> 구간 반복</label>
+    <label style="width:auto; white-space:nowrap; margin-right:12px"><input type="checkbox" id="loopEnabled"> 구간 반복</label>
+    <label style="width:auto; white-space:nowrap; margin-right:12px"><input type="checkbox" id="onceEnabled"> 일부 재생 (1회)</label>
     <input type="number" id="loopStartInput" min="1" value="1" style="width:50px">
     <button id="setLoopStartBtn">현재→시작</button>
     ~
@@ -196,11 +197,22 @@ const measureLabelEl = document.getElementById('measureLabel');
 const measureJumpInput = document.getElementById('measureJumpInput');
 const measureTotalEl = document.getElementById('measureTotal');
 const loopEnabledInput = document.getElementById('loopEnabled');
+const onceEnabledInput = document.getElementById('onceEnabled');
 const loopStartInput = document.getElementById('loopStartInput');
 const loopEndInput = document.getElementById('loopEndInput');
 
-document.getElementById('setLoopStartBtn').onclick = () => { loopStartInput.value = displayMeasureIdx + 1; };
-document.getElementById('setLoopEndBtn').onclick = () => { loopEndInput.value = displayMeasureIdx + 1; };
+document.getElementById('setLoopStartBtn').onclick = () => { loopStartInput.value = displayMeasureIdx + 1; saveState(); };
+document.getElementById('setLoopEndBtn').onclick = () => { loopEndInput.value = displayMeasureIdx + 1; saveState(); };
+loopEnabledInput.addEventListener('change', () => {
+  if (loopEnabledInput.checked) onceEnabledInput.checked = false;
+  saveState();
+});
+onceEnabledInput.addEventListener('change', () => {
+  if (onceEnabledInput.checked) loopEnabledInput.checked = false;
+  saveState();
+});
+loopStartInput.addEventListener('change', saveState);
+loopEndInput.addEventListener('change', saveState);
 
 function getLoopBounds() {
   const end0 = Math.min(measures.length - 1, Math.max(0, (+loopEndInput.value || measures.length) - 1));
@@ -276,6 +288,10 @@ async function saveState() {
     beatsPerMeasure: +beatsPerMeasureInput.value,
     subdivision: subdivisionSelect.value,
     leadInMeasures: +leadInInput.value,
+    loopEnabled: loopEnabledInput.checked,
+    onceEnabled: onceEnabledInput.checked,
+    loopStart: +loopStartInput.value || 1,
+    loopEnd: +loopEndInput.value || 1,
     lines: lines
   };
   localStorage.setItem(storageKey(), JSON.stringify(data));
@@ -378,6 +394,10 @@ pdfFileInput.onchange = async (e) => {
     beatsPerMeasureInput.value = saved.beatsPerMeasure;
     subdivisionSelect.value = saved.subdivision;
     leadInInput.value = saved.leadInMeasures || 0;
+    loopEnabledInput.checked = !!saved.loopEnabled;
+    onceEnabledInput.checked = !!saved.onceEnabled;
+    loopStartInput.value = saved.loopStart || 1;
+    loopEndInput.value = saved.loopEnd || 1;
     status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 기존 마디 정보를 불러왔습니다.${savedMsg}`);
   } else {
     lines = [];
@@ -385,7 +405,11 @@ pdfFileInput.onchange = async (e) => {
   }
   renderBeatIndicator();
   updateLineCount();
-  renderAnnotatePage(currentAnnotatePage);
+  if (saved && lines.length > 0) {
+    setMode('play');
+  } else {
+    renderAnnotatePage(currentAnnotatePage);
+  }
 };
 
 async function loadPagesFromFiles(files, name) {
@@ -426,6 +450,10 @@ async function loadPagesFromFiles(files, name) {
     beatsPerMeasureInput.value = saved.beatsPerMeasure;
     subdivisionSelect.value = saved.subdivision;
     leadInInput.value = saved.leadInMeasures || 0;
+    loopEnabledInput.checked = !!saved.loopEnabled;
+    onceEnabledInput.checked = !!saved.onceEnabled;
+    loopStartInput.value = saved.loopStart || 1;
+    loopEndInput.value = saved.loopEnd || 1;
     status(`[${songName}] 기존 마디 정보를 불러왔습니다 (${lines.length}줄, ${totalMeasures()}마디)`);
   } else {
     lines = [];
@@ -433,7 +461,11 @@ async function loadPagesFromFiles(files, name) {
   }
   renderBeatIndicator();
   updateLineCount();
-  renderAnnotatePage(currentAnnotatePage);
+  if (saved && lines.length > 0) {
+    setMode('play');
+  } else {
+    renderAnnotatePage(currentAnnotatePage);
+  }
 }
 
 folderInput.onchange = async (e) => {
@@ -1116,6 +1148,9 @@ function nextNote() {
         if (loopEnabledInput.checked && measures.length > 0) {
           const { start0, end0 } = getLoopBounds();
           if (measureIdx > end0) measureIdx = start0;
+        } else if (onceEnabledInput.checked && measures.length > 0) {
+          const { end0 } = getLoopBounds();
+          if (measureIdx > end0) measureIdx = measures.length;
         }
       }
     }
@@ -1159,7 +1194,7 @@ function stopPlayback() {
   highlightBeatIndicator(-1);
   leadInRemaining = 0;
   leadInBlinkOn = true;
-  if (loopEnabledInput.checked && measures.length > 0) {
+  if ((loopEnabledInput.checked || onceEnabledInput.checked) && measures.length > 0) {
     const { start0 } = getLoopBounds();
     updateMeasureDisplay(start0);
   } else {
