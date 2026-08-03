@@ -32,6 +32,10 @@
     font-size: 12px;
   }
   .beatBox.current { outline: 2px solid red; }
+  input[type=range] {
+    width: 160px;
+    vertical-align: middle;
+  }
 </style>
 </head>
 <body>
@@ -77,6 +81,22 @@
   <br>
   <label>준비마디</label>
   <input type="number" id="leadInMeasures" value="0" min="0" max="4">
+</fieldset>
+
+<fieldset>
+  <legend>소리</legend>
+  <label>볼륨</label>
+  <input type="range" id="volume" min="0" max="200" value="100">
+  <span id="volumeValue">100%</span>
+  <br><br>
+  <label>클릭음</label>
+  <select id="clickSound">
+    <option value="sine">기본 (사인파)</option>
+    <option value="square">클래식 (사각파)</option>
+    <option value="triangle">트라이앵글</option>
+    <option value="wood">우드블록</option>
+    <option value="soft">소프트 비프</option>
+  </select>
 </fieldset>
 
 <fieldset id="modeButtons">
@@ -226,6 +246,21 @@ const modePlayBtn = document.getElementById('modePlayBtn');
 const startStopBtn = document.getElementById('startStop');
 const beatIndicatorEl = document.getElementById('beatIndicator');
 const leadInInput = document.getElementById('leadInMeasures');
+const volumeInput = document.getElementById('volume');
+const volumeValue = document.getElementById('volumeValue');
+const clickSoundSelect = document.getElementById('clickSound');
+
+const clickPresets = {
+  sine:     { type: 'sine',     decay: 0.05 },
+  square:   { type: 'square',   decay: 0.02 },
+  triangle: { type: 'triangle', decay: 0.06 },
+  wood:     { type: 'square',   decay: 0.015, freqMul: 1.5 },
+  soft:     { type: 'sine',     decay: 0.15 },
+};
+
+volumeInput.oninput = () => { volumeValue.textContent = volumeInput.value + '%'; };
+volumeInput.onchange = saveState;
+clickSoundSelect.onchange = saveState;
 
 function status(msg) { statusEl.textContent = msg; }
 
@@ -292,6 +327,8 @@ async function saveState() {
     onceEnabled: onceEnabledInput.checked,
     loopStart: +loopStartInput.value || 1,
     loopEnd: +loopEndInput.value || 1,
+    volume: +volumeInput.value,
+    clickSound: clickSoundSelect.value,
     lines: lines
   };
   localStorage.setItem(storageKey(), JSON.stringify(data));
@@ -398,6 +435,9 @@ pdfFileInput.onchange = async (e) => {
     onceEnabledInput.checked = !!saved.onceEnabled;
     loopStartInput.value = saved.loopStart || 1;
     loopEndInput.value = saved.loopEnd || 1;
+    volumeInput.value = saved.volume ?? 100;
+    volumeValue.textContent = volumeInput.value + '%';
+    clickSoundSelect.value = saved.clickSound ?? 'sine';
     status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 기존 마디 정보를 불러왔습니다.${savedMsg}`);
   } else {
     lines = [];
@@ -454,6 +494,9 @@ async function loadPagesFromFiles(files, name) {
     onceEnabledInput.checked = !!saved.onceEnabled;
     loopStartInput.value = saved.loopStart || 1;
     loopEndInput.value = saved.loopEnd || 1;
+    volumeInput.value = saved.volume ?? 100;
+    volumeValue.textContent = volumeInput.value + '%';
+    clickSoundSelect.value = saved.clickSound ?? 'sine';
     status(`[${songName}] 기존 마디 정보를 불러왔습니다 (${lines.length}줄, ${totalMeasures()}마디)`);
   } else {
     lines = [];
@@ -1083,16 +1126,23 @@ const lookahead = 25.0;
 const scheduleAheadTime = 0.1;
 
 function playClick(time, accent, isMainBeat) {
+  const preset = clickPresets[clickSoundSelect.value] || clickPresets.sine;
+  const baseFreq = accent ? 1000 : (isMainBeat ? 800 : 600);
+  const baseGain = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  const gainValue = baseGain * (+volumeInput.value / 100);
+
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.frequency.value = accent ? 1000 : (isMainBeat ? 800 : 600);
-  gain.gain.value = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  osc.type = preset.type;
+  osc.frequency.value = baseFreq * (preset.freqMul || 1);
   osc.connect(gain);
   gain.connect(audioCtx.destination);
-  gain.gain.setValueAtTime(gain.gain.value, time);
-  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+  gain.gain.setValueAtTime(gainValue, time);
+  if (gainValue > 0) {
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + preset.decay);
+  }
   osc.start(time);
-  osc.stop(time + 0.05);
+  osc.stop(time + preset.decay);
 }
 
 function scheduleNote() {
