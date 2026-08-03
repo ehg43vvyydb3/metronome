@@ -13,6 +13,8 @@
   }
   h1 { font-size: 20px; }
   fieldset { margin-bottom: 16px; }
+  .twoCol { display: flex; gap: 16px; margin-bottom: 16px; }
+  .twoCol > fieldset { flex: 1; margin-bottom: 0; }
   label { display: inline-block; width: 110px; }
   #bpm { width: 60px; font-size: 16px; }
   #status { color: #555; font-size: 13px; min-height: 18px; }
@@ -21,15 +23,20 @@
   #modeButtons button.active { background: #333; color: #fff; }
   .hidden { display: none; }
   .hint { color: #666; font-size: 13px; }
+  #beatIndicator {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 14px;
+    margin-bottom: 10px;
+  }
   .beatBox {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
+    width: 40px;
+    height: 40px;
     border: 1px solid #888;
     text-align: center;
-    line-height: 24px;
-    margin-left: 4px;
-    font-size: 12px;
+    line-height: 40px;
+    font-size: 18px;
   }
   .beatBox.current { outline: 2px solid red; }
   input[type=range] {
@@ -57,6 +64,7 @@
   <div id="recentListArea" class="hint"></div>
 </fieldset>
 
+<div class="twoCol">
 <fieldset>
   <legend>BPM</legend>
   <button id="bpmMinus5">-5</button>
@@ -70,7 +78,6 @@
   <legend>박자</legend>
   <label>박 수 (몇/4)</label>
   <input type="number" id="beatsPerMeasure" value="4" min="1" max="12">
-  <span id="beatIndicator"></span>
   <br>
   <label>음표 쪼개기</label>
   <select id="subdivision">
@@ -82,6 +89,7 @@
   <label>준비마디</label>
   <input type="number" id="leadInMeasures" value="0" min="0" max="4">
 </fieldset>
+</div>
 
 <fieldset>
   <legend>소리</legend>
@@ -148,6 +156,7 @@
     <input type="number" id="loopEndInput" min="1" value="1" style="width:50px">
     <button id="setLoopEndBtn">현재→끝</button>
   </div>
+  <span id="beatIndicator"></span>
   <canvas id="playCanvas" width="760" height="400"></canvas>
 </div>
 
