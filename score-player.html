@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <title>악보 연동 메트로놈</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   body {
     font-family: sans-serif;
@@ -52,12 +51,9 @@
 <fieldset>
   <legend>악보 불러오기</legend>
   <p class="hint">
-    PDF를 선택하면 자동으로 페이지 이미지로 변환해서 불러옵니다.
-    (Chrome/Edge는 폴더를 고르면 그 안에 page-N.png와 설정(meta.json)도 저장합니다)
+    PDF는 여기서 직접 변환하지 않습니다. pdf_to_png_gui.command로 PDF를 PNG로 변환해 scores/ 폴더에 저장한 뒤,
+    아래 "폴더 불러오기"로 그 폴더를 선택하세요. 마디 지정·BPM 등 설정은 브라우저에 자동 저장되어 곡 이름이 같으면 다음에 다시 불러옵니다.
   </p>
-  <button id="pdfConvertBtn">PDF 변환해서 불러오기</button>
-  <input type="file" id="pdfFileInput" accept="application/pdf" class="hidden">
-  <p class="hint">이미 변환해둔 폴더가 있다면:</p>
   <button id="folderBtn">폴더 불러오기</button>
   <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden">
   <div id="status"></div>
@@ -161,16 +157,9 @@
 </div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
 const CANVAS_WIDTH = 760;
-const PDF_RENDER_SCALE = 150 / 72;
-
-function mediaWidth(m) { return m.naturalWidth || m.width; }
-function mediaHeight(m) { return m.naturalHeight || m.height; }
 
 let songName = null;
-let currentDirHandle = null;
 let pageNumbers = [];
 let pageImagesByNum = new Map();
 let currentAnnotatePage = 1;
@@ -304,28 +293,7 @@ function storageKey() {
   return `scorePlayer:${songName}`;
 }
 
-async function readMetaJson(dirHandle) {
-  try {
-    const fileHandle = await dirHandle.getFileHandle('meta.json');
-    const file = await fileHandle.getFile();
-    return JSON.parse(await file.text());
-  } catch (err) {
-    return null;
-  }
-}
-
-async function writeMetaJson(dirHandle, data) {
-  try {
-    const fileHandle = await dirHandle.getFileHandle('meta.json', { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
-  } catch (err) {
-    // read-only handle or write failure; localStorage still has the data
-  }
-}
-
-async function saveState() {
+function saveState() {
   if (!songName) return;
   const data = {
     bpm: +bpmInput.value,
@@ -341,19 +309,9 @@ async function saveState() {
     lines: lines
   };
   localStorage.setItem(storageKey(), JSON.stringify(data));
-  if (currentDirHandle) {
-    await writeMetaJson(currentDirHandle, data);
-  }
 }
 
-async function loadState() {
-  if (currentDirHandle) {
-    const fromFile = await readMetaJson(currentDirHandle);
-    if (fromFile) {
-      localStorage.setItem(storageKey(), JSON.stringify(fromFile));
-      return fromFile;
-    }
-  }
+function loadState() {
   const raw = localStorage.getItem(storageKey());
   return raw ? JSON.parse(raw) : null;
 }
@@ -375,91 +333,6 @@ function loadImage(file) {
     img.src = URL.createObjectURL(file);
   });
 }
-
-const pdfFileInput = document.getElementById('pdfFileInput');
-document.getElementById('pdfConvertBtn').onclick = () => pdfFileInput.click();
-
-pdfFileInput.onchange = async (e) => {
-  const file = e.target.files[0];
-  pdfFileInput.value = '';
-  if (!file) return;
-
-  status('PDF 변환 중...');
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-  const pdfSongName = file.name.replace(/\.pdf$/i, '');
-  let dirHandle = null;
-  if (window.showDirectoryPicker) {
-    try {
-      const parentDir = await window.showDirectoryPicker({ id: 'scores', mode: 'readwrite' });
-      dirHandle = await parentDir.getDirectoryHandle(pdfSongName, { create: true });
-      await addRecentDir(pdfSongName, dirHandle);
-    } catch (err) {
-      dirHandle = null;
-    }
-  }
-  currentDirHandle = dirHandle;
-
-  const newPageImages = new Map();
-  const newPageNumbers = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    status(`PDF 변환 중... (${i}/${pdf.numPages})`);
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
-    newPageImages.set(i, canvas);
-    newPageNumbers.push(i);
-
-    if (dirHandle) {
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-      const fileHandle = await dirHandle.getFileHandle(`page-${i}.png`, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    }
-  }
-
-  pageImagesByNum = newPageImages;
-  pageNumbers = newPageNumbers;
-  songName = pdfSongName;
-  currentAnnotatePage = pageNumbers[0];
-  pendingBox = null;
-  pendingBarX = [];
-  pageLines = [];
-  selectedLineIdx = null;
-
-  const savedMsg = dirHandle ? ' PNG/설정을 폴더에 저장했습니다.' : ' (PNG/설정 저장은 Chrome/Edge에서만 지원)';
-  const saved = await loadState();
-  if (saved) {
-    lines = saved.lines;
-    bpmInput.value = saved.bpm;
-    beatsPerMeasureInput.value = saved.beatsPerMeasure;
-    subdivisionSelect.value = saved.subdivision;
-    leadInInput.value = saved.leadInMeasures || 0;
-    loopEnabledInput.checked = !!saved.loopEnabled;
-    onceEnabledInput.checked = !!saved.onceEnabled;
-    loopStartInput.value = saved.loopStart || 1;
-    loopEndInput.value = saved.loopEnd || 1;
-    volumeInput.value = saved.volume ?? 100;
-    volumeValue.textContent = volumeInput.value + '%';
-    clickSoundSelect.value = saved.clickSound ?? 'sine';
-    status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 기존 마디 정보를 불러왔습니다.${savedMsg}`);
-  } else {
-    lines = [];
-    status(`[${songName}] 변환 완료 (${pdf.numPages}페이지). 마디를 지정해주세요.${savedMsg}`);
-  }
-  renderBeatIndicator();
-  updateLineCount();
-  if (saved && lines.length > 0) {
-    setMode('play');
-  } else {
-    renderAnnotatePage(currentAnnotatePage);
-  }
-};
 
 async function loadPagesFromFiles(files, name) {
   const pngFiles = files.filter(f => /^page-\d+\.png$/i.test(f.name));
@@ -492,7 +365,7 @@ async function loadPagesFromFiles(files, name) {
   pageLines = [];
   selectedLineIdx = null;
 
-  const saved = await loadState();
+  const saved = loadState();
   if (saved) {
     lines = saved.lines;
     bpmInput.value = saved.bpm;
@@ -516,7 +389,7 @@ async function loadPagesFromFiles(files, name) {
   if (saved && lines.length > 0) {
     setMode('play');
   } else {
-    renderAnnotatePage(currentAnnotatePage);
+    setMode('annotate');
   }
 }
 
@@ -524,49 +397,8 @@ folderInput.onchange = async (e) => {
   const files = Array.from(e.target.files);
   const firstRelPath = files[0] && (files[0].webkitRelativePath || files[0].name);
   const name = firstRelPath ? firstRelPath.split('/')[0] : 'unknown';
-  currentDirHandle = null;
   await loadPagesFromFiles(files, name);
 };
-
-function idbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('scorePlayerDB', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('handles');
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-async function idbSet(key, value) {
-  const db = await idbOpen();
-  return new Promise((resolve) => {
-    const tx = db.transaction('handles', 'readwrite');
-    tx.objectStore('handles').put(value, key);
-    tx.oncomplete = () => resolve();
-  });
-}
-async function idbGet(key) {
-  const db = await idbOpen();
-  return new Promise((resolve) => {
-    const tx = db.transaction('handles', 'readonly');
-    const req = tx.objectStore('handles').get(key);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => resolve(null);
-  });
-}
-
-async function getRecentDirs() {
-  if (!window.showDirectoryPicker) return [];
-  return (await idbGet('recentDirs')) || [];
-}
-
-async function addRecentDir(name, handle) {
-  let list = await getRecentDirs();
-  list = list.filter(item => item.name !== name);
-  list.unshift({ name, handle });
-  list = list.slice(0, 8);
-  await idbSet('recentDirs', list);
-  await renderRecentList();
-}
 
 function getRecentNames() {
   const raw = localStorage.getItem('scorePlayer:recentNames');
@@ -581,32 +413,12 @@ function addRecentName(name) {
   localStorage.setItem('scorePlayer:recentNames', JSON.stringify(names));
 }
 
-async function loadFolderFromHandle(handle) {
-  const files = [];
-  for await (const entry of handle.values()) {
-    if (entry.kind === 'file' && /^page-\d+\.png$/i.test(entry.name)) {
-      files.push(await entry.getFile());
-    }
-  }
-  currentDirHandle = handle;
-  await loadPagesFromFiles(files, handle.name);
-}
-
-async function openRecentDir(handle) {
-  let perm = await handle.queryPermission({ mode: 'readwrite' });
-  if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' });
-  if (perm !== 'granted') return;
-  await loadFolderFromHandle(handle);
-}
-
 const recentListArea = document.getElementById('recentListArea');
 
-async function renderRecentList() {
+function renderRecentList() {
   const names = getRecentNames();
   recentListArea.innerHTML = '';
   if (names.length === 0) return;
-  const dirList = await getRecentDirs();
-  const handleByName = new Map(dirList.map(item => [item.name, item.handle]));
 
   const label = document.createElement('span');
   label.textContent = '최근 열기: ';
@@ -615,49 +427,23 @@ async function renderRecentList() {
   names.forEach(name => {
     const btn = document.createElement('button');
     btn.textContent = name;
-    const handle = handleByName.get(name);
-    if (handle) {
-      btn.onclick = () => openRecentDir(handle);
-    } else {
-      btn.onclick = () => {
-        status(`"${name}" 폴더를 다시 선택해주세요.`);
-        folderInput.click();
-      };
-    }
+    btn.onclick = () => {
+      status(`"${name}" 폴더를 다시 선택해주세요.`);
+      folderInput.click();
+    };
     recentListArea.appendChild(btn);
   });
 }
 
-document.getElementById('folderBtn').onclick = async () => {
-  if (!window.showDirectoryPicker) {
-    folderInput.click();
-    return;
-  }
-  try {
-    const handle = await window.showDirectoryPicker({ id: 'scores', mode: 'readwrite' });
-    await addRecentDir(handle.name, handle);
-    await loadFolderFromHandle(handle);
-  } catch (err) {
-    // user cancelled the picker
-  }
-};
+document.getElementById('folderBtn').onclick = () => folderInput.click();
 
-(async () => {
-  await renderRecentList();
-  if (!window.showDirectoryPicker) return;
-  const list = await getRecentDirs();
-  if (list.length === 0) return;
-  const perm = await list[0].handle.queryPermission({ mode: 'readwrite' });
-  if (perm === 'granted') {
-    await loadFolderFromHandle(list[0].handle);
-  }
-})();
+renderRecentList();
 
 function renderAnnotatePage(pageNum) {
   const img = pageImagesByNum.get(pageNum);
-  annotateScale = CANVAS_WIDTH / mediaWidth(img);
+  annotateScale = CANVAS_WIDTH / img.naturalWidth;
   annotateCanvas.width = CANVAS_WIDTH;
-  annotateCanvas.height = mediaHeight(img) * annotateScale;
+  annotateCanvas.height = img.naturalHeight * annotateScale;
   const ctx = annotateCanvas.getContext('2d');
   ctx.drawImage(img, 0, 0, annotateCanvas.width, annotateCanvas.height);
   const idx = pageNumbers.indexOf(pageNum);
@@ -1101,6 +887,9 @@ function setMode(m) {
   modePlayBtn.classList.toggle('active', m === 'play');
   annotatePanel.classList.toggle('hidden', m !== 'annotate');
   playPanel.classList.toggle('hidden', m !== 'play');
+  if (m === 'annotate' && pageImagesByNum.has(currentAnnotatePage)) {
+    renderAnnotatePage(currentAnnotatePage);
+  }
   if (m === 'play') {
     computeMeasures();
     currentLineIndex = 0;
