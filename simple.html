@@ -52,6 +52,10 @@
   select, input[type=text] {
     font-size: 14px;
   }
+  input[type=range] {
+    width: 160px;
+    vertical-align: middle;
+  }
 </style>
 </head>
 <body>
@@ -83,6 +87,22 @@
 <fieldset>
   <legend>강세 (클릭해서 토글)</legend>
   <div class="beats" id="beatsDisplay"></div>
+</fieldset>
+
+<fieldset>
+  <legend>소리</legend>
+  <label>볼륨</label>
+  <input type="range" id="volume" min="0" max="200" value="100">
+  <span id="volumeValue">100%</span>
+  <br><br>
+  <label>클릭음</label>
+  <select id="clickSound">
+    <option value="sine">기본 (사인파)</option>
+    <option value="square">클래식 (사각파)</option>
+    <option value="triangle">트라이앵글</option>
+    <option value="wood">우드블록</option>
+    <option value="soft">소프트 비프</option>
+  </select>
 </fieldset>
 
 <fieldset>
@@ -118,8 +138,21 @@ const beatsDisplay = document.getElementById('beatsDisplay');
 const startStopBtn = document.getElementById('startStop');
 const presetName = document.getElementById('presetName');
 const presetList = document.getElementById('presetList');
+const volumeInput = document.getElementById('volume');
+const volumeValue = document.getElementById('volumeValue');
+const clickSoundSelect = document.getElementById('clickSound');
 
 let accents = [true, false, false, false];
+
+const clickPresets = {
+  sine:     { type: 'sine',     decay: 0.05 },
+  square:   { type: 'square',   decay: 0.02 },
+  triangle: { type: 'triangle', decay: 0.06 },
+  wood:     { type: 'square',   decay: 0.015, freqMul: 1.5 },
+  soft:     { type: 'sine',     decay: 0.15 },
+};
+
+volumeInput.oninput = () => { volumeValue.textContent = volumeInput.value + '%'; };
 
 function clampBpm(v) {
   return Math.min(300, Math.max(20, v));
@@ -154,16 +187,23 @@ beatsPerMeasureInput.onchange = renderBeats;
 renderBeats();
 
 function playClick(time, accent, isMainBeat) {
+  const preset = clickPresets[clickSoundSelect.value] || clickPresets.sine;
+  const baseFreq = accent ? 1000 : (isMainBeat ? 800 : 600);
+  const baseGain = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  const gainValue = baseGain * (+volumeInput.value / 100);
+
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.frequency.value = accent ? 1000 : (isMainBeat ? 800 : 600);
-  gain.gain.value = accent ? 1.0 : (isMainBeat ? 0.6 : 0.3);
+  osc.type = preset.type;
+  osc.frequency.value = baseFreq * (preset.freqMul || 1);
   osc.connect(gain);
   gain.connect(audioCtx.destination);
-  gain.gain.setValueAtTime(gain.gain.value, time);
-  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+  gain.gain.setValueAtTime(gainValue, time);
+  if (gainValue > 0) {
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + preset.decay);
+  }
   osc.start(time);
-  osc.stop(time + 0.05);
+  osc.stop(time + preset.decay);
 }
 
 function highlightBeat(beatIndex) {
@@ -258,7 +298,9 @@ document.getElementById('savePreset').onclick = () => {
     bpm: +bpmInput.value,
     beatsPerMeasure: +beatsPerMeasureInput.value,
     subdivision: subdivisionSelect.value,
-    accents: accents.slice()
+    accents: accents.slice(),
+    volume: +volumeInput.value,
+    clickSound: clickSoundSelect.value
   };
   savePresets(presets);
   refreshPresetList();
@@ -273,6 +315,9 @@ document.getElementById('loadPreset').onclick = () => {
   beatsPerMeasureInput.value = p.beatsPerMeasure;
   subdivisionSelect.value = p.subdivision;
   accents = p.accents.slice();
+  volumeInput.value = p.volume ?? 100;
+  volumeValue.textContent = volumeInput.value + '%';
+  clickSoundSelect.value = p.clickSound ?? 'sine';
   renderBeats();
 };
 
