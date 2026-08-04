@@ -318,6 +318,7 @@ document.getElementById('loadPreset').onclick = () => {
   volumeInput.value = p.volume ?? 100;
   volumeValue.textContent = volumeInput.value + '%';
   clickSoundSelect.value = p.clickSound ?? 'sine';
+  presetName.value = presetList.value;
   renderBeats();
 };
 
