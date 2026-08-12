@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>박자 연습</title>
+<style>
+  body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0 16px;
+  }
+  /* 본문 + 오른쪽 참고표 2단. 폭이 모자라면 참고표가 아래로 내려간다. */
+  #wrap {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    max-width: 1050px;
+    margin: 40px auto;
+  }
+  #main {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 760px;
+  }
+  h1 {
+    font-size: 20px;
+  }
+  fieldset {
+    margin-bottom: 16px;
+  }
+  label {
+    display: inline-block;
+    width: 110px;
+  }
+  /* 체크박스를 감싼 라벨은 글자 길이만큼만 차지해야 줄바꿈이 안 생긴다 */
+  label.check {
+    width: auto;
+  }
+  input[type=number] {
+    width: 60px;
+    font-size: 16px;
+  }
+  input[type=range] {
+    width: 160px;
+    vertical-align: middle;
+  }
+  button {
+    font-size: 14px;
+  }
+  #playOnce, #playLoop, #stopBtn {
+    font-size: 16px;
+    padding: 6px 16px;
+  }
+  .palette {
+    margin: 6px 0;
+  }
+  .palette button {
+    min-width: 64px;
+    padding: 4px 6px;
+  }
+  .measure {
+    border: 1px solid #888;
+    margin-bottom: 8px;
+    padding: 4px;
+    cursor: pointer;
+  }
+  .measure.selected {
+    outline: 2px solid #333;
+  }
+  .measure-head {
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 4px;
+  }
+  .measure-row {
+    display: flex;
+    gap: 2px;
+    height: 40px;
+  }
+  .note {
+    flex-basis: 0;
+    min-width: 20px;
+    border: 1px solid #333;
+    background: #333;
+    color: #fff;
+    font-size: 12px;
+    text-align: center;
+    line-height: 38px;
+    user-select: none;
+    overflow: hidden;
+  }
+  .note.rest {
+    background: #fff;
+    color: #333;
+    border-style: dashed;
+  }
+  /* 색은 역할별로 하나씩만 쓴다 — 파랑=편집 중 선택, 빨강=붙임줄(악보 내용), 초록=지금 울리는 중 */
+  .note.selected {
+    outline: 2px solid #06c;
+    outline-offset: -3px;
+  }
+  .note.tied {
+    border-right: 4px solid #c00;
+  }
+  .note.playing {
+    background: #080;
+    border-color: #080;
+    color: #fff;
+  }
+  .filler {
+    flex-basis: 0;
+    border: 1px dotted #bbb;
+    color: #bbb;
+    font-size: 12px;
+    text-align: center;
+    line-height: 38px;
+    user-select: none;
+  }
+  .hint {
+    font-size: 12px;
+    color: #555;
+    margin: 4px 0;
+  }
+  #message {
+    font-size: 13px;
+    color: #c00;
+    min-height: 18px;
+  }
+  /* 본문 오른쪽 남는 공간에 붙는 음표 모양 참고표 */
+  #legend {
+    flex: 0 0 240px;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    border: 1px solid #888;
+    padding: 8px 10px;
+    background: #fff;
+  }
+  #legend h2 {
+    font-size: 13px;
+    margin: 0 0 6px;
+  }
+  #legend h3 {
+    font-size: 12px;
+    color: #555;
+    margin: 10px 0 2px;
+    font-weight: normal;
+  }
+  .glyph-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .glyph-row svg {
+    flex: none;
+  }
+  @media (max-width: 900px) {
+    #wrap {
+      display: block;
+    }
+    #legend {
+      position: static;
+      max-height: none;
+      margin-top: 20px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="wrap">
+<div id="main">
+
+<h1>박자 연습</h1>
+
+<fieldset>
+  <legend>악보 설정</legend>
+  <label>BPM</label>
+  <input type="number" id="bpm" value="90" min="20" max="300">
+  <span class="hint">(기본박 1개 기준)</span>
+  <br><br>
+  <label>박자표</label>
+  <input type="number" id="beats" value="4" min="1" max="16">
+  /
+  <select id="unit">
+    <option value="2">2</option>
+    <option value="4" selected>4</option>
+    <option value="8">8</option>
+  </select>
+  <span class="hint">(예: 4/4, 3/4, 6/8)</span>
+  <br><br>
+  <label>마디 수</label>
+  <input type="number" id="measureCount" value="4" min="1" max="32">
+</fieldset>
+
+<fieldset>
+  <legend>음표 / 쉼표 삽입</legend>
+  <div class="hint">선택된 마디에 추가됩니다. 음표를 선택한 상태면 그 뒤에 끼워 넣습니다.<br>
+    붙임줄은 마디를 넘어서도 이어집니다 (앞 마디가 꽉 차 있어야 다음 마디 첫 음표와 이어짐).</div>
+  <label class="check"><input type="checkbox" id="dotted"> 점음표</label>
+  <div class="palette">
+    음표:
+    <button class="ins" data-den="1">온음표</button>
+    <button class="ins" data-den="2">2분음표</button>
+    <button class="ins" data-den="4">4분음표</button>
+    <button class="ins" data-den="8">8분음표</button>
+    <button class="ins" data-den="16">16분음표</button>
+  </div>
+  <div class="palette">
+    쉼표:
+    <button class="ins rest" data-den="1">온쉼표</button>
+    <button class="ins rest" data-den="2">2분쉼표</button>
+    <button class="ins rest" data-den="4">4분쉼표</button>
+    <button class="ins rest" data-den="8">8분쉼표</button>
+    <button class="ins rest" data-den="16">16분쉼표</button>
+  </div>
+  <div class="palette">
+    <button id="tieNote">다음 음표와 잇기 (붙임줄)</button>
+    <button id="deleteNote">선택 음표 삭제</button>
+    <button id="clearMeasure">마디 비우기</button>
+    <button id="fillRest">남은 자리 쉼표로 채우기</button>
+    <button id="clearAll">전체 비우기</button>
+  </div>
+  <div id="message"></div>
+</fieldset>
+
+<fieldset>
+  <legend>악보</legend>
+  <div class="hint">마디를 클릭하면 선택, 음표를 클릭하면 그 음표가 선택됩니다. (Backspace: 선택 음표 삭제)</div>
+  <div id="score"></div>
+</fieldset>
+
+<fieldset>
+  <legend>재생</legend>
+  <button id="playOnce">1번 재생</button>
+  <button id="playLoop">반복 재생</button>
+  <button id="stopBtn">정지</button>
+  <br><br>
+  <label class="check"><input type="checkbox" id="withClick" checked> 메트로놈 같이</label>
+  <br><br>
+  <label>볼륨</label>
+  <input type="range" id="volume" min="0" max="200" value="100">
+  <span id="volumeValue">100%</span>
+</fieldset>
+
+</div><!-- #main -->
+<div id="legend"></div>
+</div><!-- #wrap -->
+
+<script>
+// ---------- 상태 ----------
+// 음표 하나 = { den: 1|2|4|8|16, dot: bool, rest: bool }
+let measures = [];
+let selMeasure = 0;
+let selNote = -1;
+
+let audioCtx = null;
+let masterGain = null;
+let isPlaying = false;
+let looping = false;
+let lastLoop = false;
+let timerId = null;
+let endTimerId = null;
+let highlightTimers = [];
+
+const lookahead = 25.0;
+const scheduleAheadTime = 0.1;
+
+// 재생 시작 시점에 고정되는 값들 (재생 중 설정을 바꾸면 재시작한다)
+let startTime = 0;
+let spq = 0.5;          // 4분음표 1개의 길이(초)
+let totalQuarters = 0;
+let noteEvents = [];
+let beatEvents = [];
+let noteCursor = { i: 0, cycle: 0 };
+let beatCursor = { i: 0, cycle: 0 };
+
+const bpmInput = document.getElementById('bpm');
+const beatsInput = document.getElementById('beats');
+const unitSelect = document.getElementById('unit');
+const measureCountInput = document.getElementById('measureCount');
+const dottedCheck = document.getElementById('dotted');
+const scoreDiv = document.getElementById('score');
+const messageDiv = document.getElementById('message');
+const withClickCheck = document.getElementById('withClick');
+const volumeInput = document.getElementById('volume');
+const volumeValue = document.getElementById('volumeValue');
+
+// ---------- 길이 계산 (모든 길이는 4분음표 개수 단위) ----------
+function noteQuarters(n) {
+  return (4 / n.den) * (n.dot ? 1.5 : 1);
+}
+
+function beatQuarters() {
+  return 4 / +unitSelect.value;   // 기본박 1개의 길이
+}
+
+function measureQuarters() {
+  return +beatsInput.value * beatQuarters();
+}
+
+function usedQuarters(m) {
+  return m.reduce((sum, n) => sum + noteQuarters(n), 0);
+}
+
+// 부동소수점 오차 방지용 (16분음표 = 0.25, 점16분음표 = 0.375 까지 다룬다)
+function almostLE(a, b) {
+  return a <= b + 1e-6;
+}
+
+function noteLabel(n) {
+  return (n.den === 1 ? '온' : n.den + '분') + (n.dot ? '.' : '') +
+         (n.rest ? ' 쉼' : '') + (n.tie ? ' ‿' : '');
+}
+
+function showMessage(text) {
+  messageDiv.textContent = text;
+}
+
+// ---------- 악보 편집 ----------
+function resizeMeasures() {
+  const count = Math.max(1, Math.min(32, +measureCountInput.value || 1));
+  measureCountInput.value = count;
+  while (measures.length < count) measures.push([]);
+  if (measures.length > count) measures.length = count;
+  if (selMeasure >= count) {
+    selMeasure = count - 1;
+    selNote = -1;
+  }
+}
+
+// 박자표를 줄였을 때 마디 용량을 넘는 음표를 잘라낸다
+function trimOverflow() {
+  const cap = measureQuarters();
+  let trimmed = 0;
+  measures.forEach(m => {
+    let used = 0;
+    for (let i = 0; i < m.length; i++) {
+      if (!almostLE(used + noteQuarters(m[i]), cap)) {
+        trimmed += m.length - i;
+        m.length = i;
+        break;
+      }
+      used += noteQuarters(m[i]);
+    }
+  });
+  if (trimmed > 0) showMessage('박자표가 바뀌어 마디를 넘치는 음표 ' + trimmed + '개를 지웠습니다.');
+}
+
+function insertNote(den, rest) {
+  const m = measures[selMeasure];
+  if (!m) return;
+  const note = { den: den, dot: dottedCheck.checked, rest: rest };
+  const cap = measureQuarters();
+  if (!almostLE(usedQuarters(m) + noteQuarters(note), cap)) {
+    showMessage('마디 ' + (selMeasure + 1) + '에 자리가 없습니다. (남은 길이 ' + fmt(cap - usedQuarters(m)) + '박)');
+    return;
+  }
+  const at = selNote >= 0 ? selNote + 1 : m.length;
+  m.splice(at, 0, note);
+  selNote = at;
+  showMessage('');
+  render();
+  save();
+}
+
+function fmt(quarters) {
+  // 4분음표 개수를 기본박 개수로 환산해서 보여준다
+  const v = quarters / beatQuarters();
+  return Math.round(v * 100) / 100;
+}
+
+function render() {
+  const cap = measureQuarters();
+  scoreDiv.innerHTML = '';
+
+  measures.forEach((m, mi) => {
+    const box = document.createElement('div');
+    box.className = 'measure' + (mi === selMeasure ? ' selected' : '');
+    box.onclick = () => {
+      selMeasure = mi;
+      selNote = -1;
+      render();
+    };
+
+    const head = document.createElement('div');
+    head.className = 'measure-head';
+    const left = cap - usedQuarters(m);
+    head.textContent = '마디 ' + (mi + 1) + ' · 남은 길이 ' + fmt(left) + '박';
+    box.appendChild(head);
+
+    const row = document.createElement('div');
+    row.className = 'measure-row';
+
+    m.forEach((n, ni) => {
+      const el = document.createElement('div');
+      el.className = 'note' + (n.rest ? ' rest' : '') + (n.tie ? ' tied' : '') +
+        (mi === selMeasure && ni === selNote ? ' selected' : '');
+      el.style.flexGrow = noteQuarters(n);
+      el.dataset.mi = mi;
+      el.dataset.ni = ni;
+      el.textContent = noteLabel(n);
+      el.onclick = (e) => {
+        e.stopPropagation();
+        selMeasure = mi;
+        selNote = ni;
+        render();
+      };
+      row.appendChild(el);
+    });
+
+    if (left > 1e-6) {
+      const filler = document.createElement('div');
+      filler.className = 'filler';
+      filler.style.flexGrow = left;
+      filler.textContent = '빈 자리';
+      row.appendChild(filler);
+    }
+
+    box.appendChild(row);
+    scoreDiv.appendChild(box);
+  });
+}
+
+// ---------- 재생용 이벤트 만들기 ----------
+// 마디를 넘어서도 음표를 시간 순서대로 늘어놓는다 (붙임줄 판정에 쓴다)
+function flatNotes() {
+  const cap = measureQuarters();
+  const out = [];
+  measures.forEach((m, mi) => {
+    let local = 0;
+    m.forEach((n, ni) => {
+      out.push({ mi: mi, ni: ni, n: n, t: mi * cap + local, q: noteQuarters(n) });
+      local += noteQuarters(n);
+    });
+  });
+  return out;
+}
+
+// 붙임줄로 이어지는가? (쉼표가 끼거나 사이가 비어 있으면 잇지 않는다)
+function tiesToNext(cur, next) {
+  if (!cur || !next || !cur.n.tie) return false;
+  if (cur.n.rest || next.n.rest) return false;
+  return Math.abs(next.t - (cur.t + cur.q)) < 1e-6;
+}
+
+function buildEvents() {
+  const cap = measureQuarters();
+  const beatQ = beatQuarters();
+  const beatCount = +beatsInput.value;
+  const flat = flatNotes();
+
+  // trigger: 이 자리에서 새로 소리를 내는가 / soundQ: 그 소리를 얼마나 끄는가
+  noteEvents = flat.map(f => ({
+    t: f.t, mi: f.mi, ni: f.ni, rest: f.n.rest, trigger: true, soundQ: f.q
+  }));
+
+  // 뒤에서부터 합쳐야 세 개 이상 이어진 붙임줄도 한 번에 누적된다
+  for (let i = flat.length - 2; i >= 0; i--) {
+    if (!tiesToNext(flat[i], flat[i + 1])) continue;
+    noteEvents[i].soundQ = flat[i].q + noteEvents[i + 1].soundQ;
+    noteEvents[i + 1].trigger = false;
+  }
+
+  beatEvents = [];
+  for (let mi = 0; mi < measures.length; mi++) {
+    for (let b = 0; b < beatCount; b++) {
+      beatEvents.push({ t: mi * cap + b * beatQ, accent: b === 0 });
+    }
+  }
+
+  totalQuarters = measures.length * cap;
+}
+
+// ---------- 소리 ----------
+// 재생 중 예약해둔 소리를 정지 버튼 한 번으로 끊기 위해 전부 이 노드를 거친다
+function out() {
+  return masterGain || audioCtx.destination;
+}
+
+// 메트로놈 클릭처럼 짧게 튕기는 소리
+function playTone(time, freq, gainValue, decay, type) {
+  if (gainValue <= 0.0001) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.connect(gain);
+  gain.connect(out());
+  gain.gain.setValueAtTime(gainValue, time);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + decay);
+  osc.start(time);
+  osc.stop(time + decay);
+}
+
+// 음표 길이만큼 끄는 소리. 쉼표는 아예 예약하지 않으므로 그대로 공백이 된다.
+function playSustain(time, freq, gainValue, duration) {
+  if (gainValue <= 0.0001 || duration <= 0) return;
+  // 연달아 붙은 음표끼리 한 덩어리로 들리지 않게 끝을 조금 띄운다
+  const gap = Math.min(0.04, duration * 0.15);
+  const end = time + Math.max(0.02, duration - gap);
+  const attack = Math.min(0.005, (end - time) * 0.2);
+  const release = Math.min(0.02, (end - time) * 0.3);
+  const holdEnd = Math.max(time + attack, end - release);
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+  osc.connect(gain);
+  gain.connect(out());
+  gain.gain.setValueAtTime(0.0001, time);
+  gain.gain.linearRampToValueAtTime(gainValue, time + attack);
+  gain.gain.setValueAtTime(gainValue, holdEnd);
+  gain.gain.exponentialRampToValueAtTime(0.0001, end);
+  osc.start(time);
+  osc.stop(end + 0.01);
+}
+
+function vol() {
+  return +volumeInput.value / 100;
+}
+
+volumeInput.oninput = () => { volumeValue.textContent = volumeInput.value + '%'; };
+
+// ---------- 스케줄러 ----------
+function highlightAt(time, mi, ni) {
+  const delay = Math.max(0, (time - audioCtx.currentTime) * 1000);
+  const id = setTimeout(() => {
+    document.querySelectorAll('.note.playing').forEach(el => el.classList.remove('playing'));
+    const el = scoreDiv.querySelector('.note[data-mi="' + mi + '"][data-ni="' + ni + '"]');
+    if (el) el.classList.add('playing');
+  }, delay);
+  highlightTimers.push(id);
+}
+
+function pump(list, cursor, fire) {
+  while (true) {
+    if (cursor.i >= list.length) {
+      if (!looping || list.length === 0) return;
+      cursor.i = 0;
+      cursor.cycle++;
+    }
+    const ev = list[cursor.i];
+    const time = startTime + (ev.t + cursor.cycle * totalQuarters) * spq;
+    if (time >= audioCtx.currentTime + scheduleAheadTime) return;
+    fire(ev, time);
+    cursor.i++;
+  }
+}
+
+function scheduler() {
+  pump(noteEvents, noteCursor, (ev, time) => {
+    // 붙임줄로 이어받은 음표(trigger=false)는 앞 소리가 계속 울리므로 새로 내지 않는다
+    if (!ev.rest && ev.trigger) playSustain(time, 660, 0.5 * vol(), ev.soundQ * spq);
+    highlightAt(time, ev.mi, ev.ni);
+  });
+  // 클릭을 꺼도 커서는 같이 진행시킨다. 안 그러면 도중에 켰을 때 밀린 클릭이 한꺼번에 터진다.
+  pump(beatEvents, beatCursor, (ev, time) => {
+    if (!withClickCheck.checked) return;
+    playTone(time, ev.accent ? 1400 : 1100, (ev.accent ? 0.35 : 0.2) * vol(), 0.03, 'square');
+  });
+  if (highlightTimers.length > 400) highlightTimers.splice(0, 200);
+  timerId = setTimeout(scheduler, lookahead);
+}
+
+function start(loop) {
+  stop();
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  buildEvents();
+  if (noteEvents.length === 0) {
+    showMessage('재생할 음표가 없습니다.');
+    return;
+  }
+
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 1;
+  masterGain.connect(audioCtx.destination);
+
+  looping = loop;
+  lastLoop = loop;
+  isPlaying = true;
+  spq = 60.0 / (+bpmInput.value) / beatQuarters();  // 기본박 기준 BPM → 4분음표 1개 길이
+  startTime = audioCtx.currentTime + 0.1;
+  noteCursor = { i: 0, cycle: 0 };
+  beatCursor = { i: 0, cycle: 0 };
+  scheduler();
+
+  if (!loop) {
+    const ms = (startTime + totalQuarters * spq - audioCtx.currentTime) * 1000;
+    endTimerId = setTimeout(stop, ms + 100);
+  }
+}
+
+function stop() {
+  isPlaying = false;
+  looping = false;
+  clearTimeout(timerId);
+  clearTimeout(endTimerId);
+  // 길게 예약해둔 지속음이 남아 울리지 않도록 마스터를 끊는다 (툭 끊기지 않게 20ms 페이드)
+  if (masterGain) {
+    const g = masterGain;
+    const t = audioCtx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(0, t + 0.02);
+    setTimeout(() => g.disconnect(), 100);
+    masterGain = null;
+  }
+  highlightTimers.forEach(clearTimeout);
+  highlightTimers = [];
+  document.querySelectorAll('.note.playing').forEach(el => el.classList.remove('playing'));
+}
+
+document.getElementById('playOnce').onclick = () => start(false);
+document.getElementById('playLoop').onclick = () => start(true);
+document.getElementById('stopBtn').onclick = stop;
+
+// ---------- 입력 핸들러 ----------
+document.querySelectorAll('.ins').forEach(btn => {
+  btn.onclick = () => insertNote(+btn.dataset.den, btn.classList.contains('rest'));
+});
+
+document.getElementById('tieNote').onclick = () => {
+  const m = measures[selMeasure];
+  if (!m || selNote < 0) { showMessage('이을 음표를 먼저 선택하세요.'); return; }
+  const note = m[selNote];
+  if (note.tie) {                       // 이미 이어져 있으면 해제
+    delete note.tie;
+    showMessage('');
+    render();
+    save();
+    return;
+  }
+  const flat = flatNotes();
+  const idx = flat.findIndex(f => f.mi === selMeasure && f.ni === selNote);
+  const cur = flat[idx], next = flat[idx + 1];
+  if (!next) { showMessage('뒤에 이을 음표가 없습니다.'); return; }
+  if (cur.n.rest || next.n.rest) { showMessage('쉼표는 붙임줄로 이을 수 없습니다.'); return; }
+  if (Math.abs(next.t - (cur.t + cur.q)) > 1e-6) {
+    showMessage('사이가 비어 있어 이을 수 없습니다. 앞 마디의 남은 자리를 먼저 채우세요.');
+    return;
+  }
+  note.tie = true;
+  showMessage('');
+  render();
+  save();
+};
+
+document.getElementById('deleteNote').onclick = () => {
+  const m = measures[selMeasure];
+  if (!m || selNote < 0) { showMessage('삭제할 음표를 먼저 선택하세요.'); return; }
+  m.splice(selNote, 1);
+  selNote = Math.min(selNote, m.length - 1);
+  showMessage('');
+  render();
+  save();
+};
+
+document.getElementById('clearMeasure').onclick = () => {
+  if (!measures[selMeasure]) return;
+  measures[selMeasure] = [];
+  selNote = -1;
+  render();
+  save();
+};
+
+document.getElementById('fillRest').onclick = () => {
+  const m = measures[selMeasure];
+  if (!m) return;
+  const cap = measureQuarters();
+  // 큰 쉼표부터 넣어서 남은 자리를 메운다
+  const dens = [1, 2, 4, 8, 16];
+  let left = cap - usedQuarters(m);
+  for (const den of dens) {
+    const q = 4 / den;
+    while (almostLE(q, left)) {
+      m.push({ den: den, dot: false, rest: true });
+      left -= q;
+    }
+  }
+  selNote = -1;
+  render();
+  save();
+};
+
+document.getElementById('clearAll').onclick = () => {
+  if (!confirm('모든 마디를 비웁니다.')) return;
+  measures = measures.map(() => []);
+  selNote = -1;
+  render();
+  save();
+};
+
+measureCountInput.onchange = () => {
+  resizeMeasures();
+  render();
+  save();
+};
+
+function onMeterChange() {
+  showMessage('');
+  trimOverflow();
+  if (isPlaying) stop();
+  render();
+  save();
+}
+beatsInput.onchange = onMeterChange;
+unitSelect.onchange = onMeterChange;
+
+bpmInput.onchange = () => {
+  bpmInput.value = Math.min(300, Math.max(20, +bpmInput.value || 90));
+  if (isPlaying) stop();   // 템포가 바뀌면 처음부터 다시 재생해야 한다
+  save();
+};
+
+document.addEventListener('keydown', (e) => {
+  const el = document.activeElement;
+  const typing = el && (el.tagName === 'SELECT' || el.tagName === 'BUTTON' ||
+                        el.type === 'text' || el.type === 'checkbox');
+  if (e.code === 'Backspace' && !typing && el.type !== 'number') {
+    e.preventDefault();
+    document.getElementById('deleteNote').onclick();
+    return;
+  }
+  if (e.code !== 'Space' || typing) return;
+  e.preventDefault();
+  if (isPlaying) stop(); else start(lastLoop);
+});
+
+// ---------- 저장 (localStorage 자동 저장) ----------
+const STORAGE_KEY = 'rhythmScore';
+
+function save() {
+  const data = {
+    bpm: +bpmInput.value,
+    beats: +beatsInput.value,
+    unit: unitSelect.value,
+    measures: measures,
+    volume: +volumeInput.value,
+    withClick: withClickCheck.checked
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    // 저장 실패는 편집을 막지 않는다
+  }
+}
+
+function load() {
+  let data = null;
+  try {
+    data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+  } catch (e) {
+    data = null;
+  }
+  if (!data || !Array.isArray(data.measures)) {
+    resizeMeasures();
+    return;
+  }
+  bpmInput.value = data.bpm ?? 90;
+  beatsInput.value = data.beats ?? 4;
+  unitSelect.value = data.unit ?? '4';
+  measures = data.measures;
+  measureCountInput.value = Math.max(1, Math.min(32, measures.length));
+  volumeInput.value = data.volume ?? 100;
+  volumeValue.textContent = volumeInput.value + '%';
+  withClickCheck.checked = data.withClick !== false;
+  resizeMeasures();
+}
+
+volumeInput.onchange = save;
+withClickCheck.onchange = save;
+
+// ---------- 음표 모양 참고표 ----------
+// 유니코드 음표 기호는 폰트에 따라 안 그려지는 경우가 있어 SVG로 직접 그린다.
+// 좌표계: 폭 44 / 높이 60, 오선 한 줄을 y=26 에 두고 음표 머리는 y=44 에 놓는다.
+function stem() {
+  return '<line x1="23.2" y1="43" x2="23.2" y2="14" stroke="#222" stroke-width="2"/>';
+}
+function flag(y) {
+  return '<path d="M23 ' + y + ' c 10 5 12 13 6 21 c 2 -11 -2 -15 -6 -17 z" fill="#222"/>';
+}
+function head(filled) {
+  return '<ellipse cx="16" cy="44" rx="7.5" ry="5.5" transform="rotate(-20 16 44)" ' +
+         (filled ? 'fill="#222"/>' : 'fill="none" stroke="#222" stroke-width="2.2"/>');
+}
+
+function noteGlyph(den, dot) {
+  let s = '';
+  if (den === 1) {
+    s = '<ellipse cx="16" cy="44" rx="8.5" ry="5.5" fill="none" stroke="#222" stroke-width="2.6"/>';
+  } else {
+    s = head(den >= 4) + stem();
+    if (den === 8) s += flag(14);
+    if (den === 16) s += flag(14) + flag(23);
+  }
+  if (dot) s += '<circle cx="34" cy="44" r="2.6" fill="#222"/>';
+  return s;
+}
+
+function restGlyph(den, dot) {
+  // 온쉼표는 줄 아래에 매달리고, 2분쉼표는 줄 위에 얹힌다 — 둘을 구분하는 유일한 단서다.
+  let s = '<line x1="4" y1="26" x2="40" y2="26" stroke="#999" stroke-width="1.4"/>';
+  if (den === 1) s += '<rect x="11" y="26" width="18" height="7" fill="#222"/>';
+  else if (den === 2) s += '<rect x="11" y="19" width="18" height="7" fill="#222"/>';
+  else if (den === 4) {
+    s += '<path d="M15 14 L24 25 L15 34 L24 47" fill="none" stroke="#222" stroke-width="3" ' +
+         'stroke-linecap="round" stroke-linejoin="round"/>' +
+         '<path d="M24 47 c -7 -6 -13 -1 -8 6" fill="none" stroke="#222" stroke-width="2.4" stroke-linecap="round"/>';
+  } else {
+    // 8분/16분 쉼표: 오른쪽 위에서 왼쪽 아래로 내려긋는 획에 갈고리를 단다
+    const top = den === 8 ? 20 : 14;
+    s += '<path d="M26 ' + top + ' L15 46" fill="none" stroke="#222" stroke-width="2.4" stroke-linecap="round"/>';
+    s += '<circle cx="14" cy="' + (top + 4) + '" r="3.6" fill="#222"/>' +
+         '<path d="M14 ' + (top + 2) + ' q 6 -5 11 -2" fill="none" stroke="#222" stroke-width="2"/>';
+    if (den === 16) {
+      s += '<circle cx="17.5" cy="' + (top + 15) + '" r="3.6" fill="#222"/>' +
+           '<path d="M17.5 ' + (top + 13) + ' q 6 -5 11 -2" fill="none" stroke="#222" stroke-width="2"/>';
+    }
+  }
+  if (dot) s += '<circle cx="34" cy="26" r="2.6" fill="#222"/>';
+  return s;
+}
+
+function glyphSvg(den, dot, rest, width) {
+  const w = width || 44;
+  return '<svg width="' + Math.round(w * 0.85) + '" height="51" viewBox="0 0 ' + w + ' 60">' +
+         (rest ? restGlyph(den, dot) : noteGlyph(den, dot)) + '</svg>';
+}
+
+function tieGlyph() {
+  // 4분음표 두 개를 붙임줄로 이은 모양
+  const right = '<g transform="translate(40 0)">' + noteGlyph(4, false) + '</g>';
+  return '<svg width="75" height="51" viewBox="0 0 88 60">' +
+         noteGlyph(4, false) + right +
+         '<path d="M16 53 q 20 10 40 0" fill="none" stroke="#c00" stroke-width="2.2"/></svg>';
+}
+
+function renderLegend() {
+  const dens = [[1, '온'], [2, '2분'], [4, '4분'], [8, '8분'], [16, '16분']];
+  let html = '<h2>음표 모양</h2><h3>음표</h3>';
+  dens.forEach(([den, name]) => {
+    html += '<div class="glyph-row">' + glyphSvg(den, false, false) + name + '음표</div>';
+  });
+  html += '<h3>쉼표</h3>';
+  dens.forEach(([den, name]) => {
+    html += '<div class="glyph-row">' + glyphSvg(den, false, true) + name + '쉼표</div>';
+  });
+  html += '<h3>점음표 (길이 1.5배)</h3>' +
+          '<div class="glyph-row">' + glyphSvg(4, true, false) + '점4분음표 = 4분 + 8분</div>' +
+          '<div class="glyph-row">' + glyphSvg(4, true, true) + '점4분쉼표</div>';
+  html += '<h3>붙임줄 (‿)</h3>' +
+          '<div class="glyph-row">' + tieGlyph() + '두 음을 끊지 않고 이어서</div>';
+  document.getElementById('legend').innerHTML = html;
+}
+
+renderLegend();
+load();
+render();
+</script>
+
+</body>
+</html>
