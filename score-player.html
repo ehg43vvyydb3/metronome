@@ -42,6 +42,8 @@
     width: 160px;
     vertical-align: middle;
   }
+  .modeRow { margin-bottom: 4px; white-space: nowrap; }
+  .modeRow label { width: 100px; }
 </style>
 </head>
 <body>
@@ -58,6 +60,7 @@
   <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden">
   <div id="status"></div>
   <div id="recentListArea" class="hint"></div>
+  <div id="folderPickArea" class="hint"></div>
 </fieldset>
 
 <div class="twoCol">
@@ -143,14 +146,37 @@
     <input type="number" id="measureJumpInput" min="1" value="1" style="width:50px">
     / <span id="measureTotal">0</span>
   </div>
-  <div>
-    <label style="width:auto; white-space:nowrap; margin-right:12px"><input type="checkbox" id="loopEnabled"> 구간 반복</label>
-    <label style="width:auto; white-space:nowrap; margin-right:12px"><input type="checkbox" id="onceEnabled"> 일부 재생 (1회)</label>
-    <input type="number" id="loopStartInput" min="1" value="1" style="width:50px">
-    <button id="setLoopStartBtn">현재→시작</button>
-    ~
-    <input type="number" id="loopEndInput" min="1" value="1" style="width:50px">
-    <button id="setLoopEndBtn">현재→끝</button>
+  <div id="playModeRows">
+    <div class="modeRow">
+      <label style="width:auto"><input type="checkbox" id="loopEnabled"> 구간 반복</label>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="all" checked> 전체 재생</label>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once1"> 일부 재생 1</label>
+      <input type="number" data-range-start="once1" min="1" value="1" style="width:50px">
+      <button data-set-start="once1">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once1" min="1" value="1" style="width:50px">
+      <button data-set-end="once1">현재→끝</button>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once2"> 일부 재생 2</label>
+      <input type="number" data-range-start="once2" min="1" value="1" style="width:50px">
+      <button data-set-start="once2">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once2" min="1" value="1" style="width:50px">
+      <button data-set-end="once2">현재→끝</button>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once3"> 일부 재생 3</label>
+      <input type="number" data-range-start="once3" min="1" value="1" style="width:50px">
+      <button data-set-start="once3">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once3" min="1" value="1" style="width:50px">
+      <button data-set-end="once3">현재→끝</button>
+    </div>
   </div>
   <span id="beatIndicator"></span>
   <canvas id="playCanvas" width="760" height="400"></canvas>
@@ -215,26 +241,53 @@ const measureLabelEl = document.getElementById('measureLabel');
 const measureJumpInput = document.getElementById('measureJumpInput');
 const measureTotalEl = document.getElementById('measureTotal');
 const loopEnabledInput = document.getElementById('loopEnabled');
-const onceEnabledInput = document.getElementById('onceEnabled');
-const loopStartInput = document.getElementById('loopStartInput');
-const loopEndInput = document.getElementById('loopEndInput');
+loopEnabledInput.addEventListener('change', saveState);
 
-document.getElementById('setLoopStartBtn').onclick = () => { loopStartInput.value = displayMeasureIdx + 1; saveState(); };
-document.getElementById('setLoopEndBtn').onclick = () => { loopEndInput.value = displayMeasureIdx + 1; saveState(); };
-loopEnabledInput.addEventListener('change', () => {
-  if (loopEnabledInput.checked) onceEnabledInput.checked = false;
-  saveState();
-});
-onceEnabledInput.addEventListener('change', () => {
-  if (onceEnabledInput.checked) loopEnabledInput.checked = false;
-  saveState();
-});
-loopStartInput.addEventListener('change', saveState);
-loopEndInput.addEventListener('change', saveState);
+const RANGE_KEYS = ['once1', 'once2', 'once3'];
+const rangeInputs = {};
+for (const key of RANGE_KEYS) {
+  rangeInputs[key] = {
+    start: document.querySelector(`[data-range-start="${key}"]`),
+    end: document.querySelector(`[data-range-end="${key}"]`)
+  };
+  document.querySelector(`[data-set-start="${key}"]`).onclick = () => {
+    rangeInputs[key].start.value = displayMeasureIdx + 1;
+    saveState();
+  };
+  document.querySelector(`[data-set-end="${key}"]`).onclick = () => {
+    rangeInputs[key].end.value = displayMeasureIdx + 1;
+    saveState();
+  };
+  rangeInputs[key].start.addEventListener('change', saveState);
+  rangeInputs[key].end.addEventListener('change', saveState);
+}
+
+const playModeRadios = Array.from(document.querySelectorAll('input[name="playMode"]'));
+for (const radio of playModeRadios) {
+  radio.addEventListener('change', () => {
+    saveState();
+    if (!isPlaying && measures.length > 0) {
+      const { start0 } = getLoopBounds();
+      updateMeasureDisplay(start0);
+    }
+  });
+}
+
+function getPlayMode() {
+  const checked = playModeRadios.find(r => r.checked);
+  return checked ? checked.value : 'all';
+}
+
+function setPlayMode(value) {
+  const radio = playModeRadios.find(r => r.value === value) || playModeRadios[0];
+  radio.checked = true;
+}
 
 function getLoopBounds() {
-  const end0 = Math.min(measures.length - 1, Math.max(0, (+loopEndInput.value || measures.length) - 1));
-  const start0 = Math.max(0, Math.min(end0, (+loopStartInput.value || 1) - 1));
+  const inputs = rangeInputs[getPlayMode()];
+  if (!inputs) return { start0: 0, end0: Math.max(0, measures.length - 1) };
+  const end0 = Math.min(measures.length - 1, Math.max(0, (+inputs.end.value || measures.length) - 1));
+  const start0 = Math.max(0, Math.min(end0, (+inputs.start.value || 1) - 1));
   return { start0, end0 };
 }
 const annotatePanel = document.getElementById('annotatePanel');
@@ -300,10 +353,12 @@ function saveState() {
     beatsPerMeasure: +beatsPerMeasureInput.value,
     subdivision: subdivisionSelect.value,
     leadInMeasures: +leadInInput.value,
+    playMode: getPlayMode(),
     loopEnabled: loopEnabledInput.checked,
-    onceEnabled: onceEnabledInput.checked,
-    loopStart: +loopStartInput.value || 1,
-    loopEnd: +loopEndInput.value || 1,
+    ranges: Object.fromEntries(RANGE_KEYS.map(key => [key, {
+      start: +rangeInputs[key].start.value || 1,
+      end: +rangeInputs[key].end.value || 1
+    }])),
     volume: +volumeInput.value,
     clickSound: clickSoundSelect.value,
     lines: lines
@@ -372,10 +427,13 @@ async function loadPagesFromFiles(files, name) {
     beatsPerMeasureInput.value = saved.beatsPerMeasure;
     subdivisionSelect.value = saved.subdivision;
     leadInInput.value = saved.leadInMeasures || 0;
+    setPlayMode(saved.playMode || 'all');
     loopEnabledInput.checked = !!saved.loopEnabled;
-    onceEnabledInput.checked = !!saved.onceEnabled;
-    loopStartInput.value = saved.loopStart || 1;
-    loopEndInput.value = saved.loopEnd || 1;
+    for (const key of RANGE_KEYS) {
+      const r = (saved.ranges && saved.ranges[key]) || {};
+      rangeInputs[key].start.value = r.start || 1;
+      rangeInputs[key].end.value = r.end || 1;
+    }
     volumeInput.value = saved.volume ?? 100;
     volumeValue.textContent = volumeInput.value + '%';
     clickSoundSelect.value = saved.clickSound ?? 'sine';
@@ -393,11 +451,64 @@ async function loadPagesFromFiles(files, name) {
   }
 }
 
+function songFolderName(file) {
+  const rel = file.webkitRelativePath || file.name;
+  const parts = rel.split('/');
+  return parts.length >= 2 ? parts[parts.length - 2] : '';
+}
+
+function groupPagesByFolder(files) {
+  const groups = new Map();
+  for (const f of files) {
+    if (!/^page-\d+\.png$/i.test(f.name)) continue;
+    const folder = songFolderName(f) || 'unknown';
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder).push(f);
+  }
+  return groups;
+}
+
+function renderFolderPicker(groups) {
+  folderPickArea.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = '선택한 폴더 안의 곡: ';
+  folderPickArea.appendChild(label);
+  for (const [folder, pngFiles] of groups) {
+    const btn = document.createElement('button');
+    btn.textContent = `${folder} (${pngFiles.length}장)`;
+    btn.onclick = () => {
+      folderPickArea.innerHTML = '';
+      loadPagesFromFiles(pngFiles, folder);
+    };
+    folderPickArea.appendChild(btn);
+  }
+}
+
 folderInput.onchange = async (e) => {
   const files = Array.from(e.target.files);
-  const firstRelPath = files[0] && (files[0].webkitRelativePath || files[0].name);
-  const name = firstRelPath ? firstRelPath.split('/')[0] : 'unknown';
-  await loadPagesFromFiles(files, name);
+  e.target.value = '';
+  const wanted = pendingRecentName;
+  pendingRecentName = null;
+  folderPickArea.innerHTML = '';
+
+  const groups = groupPagesByFolder(files);
+  if (groups.size === 0) {
+    status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
+    return;
+  }
+  if (wanted && groups.has(wanted)) {
+    await loadPagesFromFiles(groups.get(wanted), wanted);
+    return;
+  }
+  if (groups.size === 1) {
+    const [folder, pngFiles] = [...groups][0];
+    await loadPagesFromFiles(pngFiles, folder);
+    return;
+  }
+  status(wanted
+    ? `"${wanted}" 폴더를 찾지 못했습니다. 아래에서 곡을 선택하세요.`
+    : '선택한 폴더 안에 곡이 여러 개입니다. 아래에서 곡을 선택하세요.');
+  renderFolderPicker(groups);
 };
 
 function getRecentNames() {
@@ -414,6 +525,8 @@ function addRecentName(name) {
 }
 
 const recentListArea = document.getElementById('recentListArea');
+const folderPickArea = document.getElementById('folderPickArea');
+let pendingRecentName = null;
 
 function renderRecentList() {
   const names = getRecentNames();
@@ -428,7 +541,8 @@ function renderRecentList() {
     const btn = document.createElement('button');
     btn.textContent = name;
     btn.onclick = () => {
-      status(`"${name}" 폴더를 다시 선택해주세요.`);
+      pendingRecentName = name;
+      status(`"${name}" 폴더 또는 그 상위 폴더를 선택해주세요.`);
       folderInput.click();
     };
     recentListArea.appendChild(btn);
@@ -895,9 +1009,12 @@ function setMode(m) {
     currentLineIndex = 0;
     windowStartLine = 0;
     displayMeasureIdx = 0;
-    loopStartInput.max = measures.length;
-    loopEndInput.max = measures.length;
-    if (!loopEndInput.value || +loopEndInput.value > measures.length) loopEndInput.value = measures.length;
+    for (const key of RANGE_KEYS) {
+      const { start, end } = rangeInputs[key];
+      start.max = measures.length;
+      end.max = measures.length;
+      if (!end.value || +end.value > measures.length) end.value = measures.length;
+    }
     renderPlayWindow();
   }
 }
@@ -993,12 +1110,11 @@ function nextNote() {
         leadInRemaining--;
       } else {
         measureIdx++;
-        if (loopEnabledInput.checked && measures.length > 0) {
+        if (measures.length > 0) {
           const { start0, end0 } = getLoopBounds();
-          if (measureIdx > end0) measureIdx = start0;
-        } else if (onceEnabledInput.checked && measures.length > 0) {
-          const { end0 } = getLoopBounds();
-          if (measureIdx > end0) measureIdx = measures.length;
+          if (measureIdx > end0) {
+            measureIdx = loopEnabledInput.checked ? start0 : measures.length;
+          }
         }
       }
     }
@@ -1023,6 +1139,8 @@ function startPlayback() {
   if (measures.length === 0) { alert('마디가 없습니다.'); return; }
   isPlaying = true;
   measureIdx = displayMeasureIdx;
+  const { start0, end0 } = getLoopBounds();
+  if (measureIdx < start0 || measureIdx > end0) measureIdx = start0;
   beatInMeasure = 0;
   subIdx = 0;
   leadInTotal = Math.max(0, +leadInInput.value || 0);
@@ -1042,7 +1160,7 @@ function stopPlayback() {
   highlightBeatIndicator(-1);
   leadInRemaining = 0;
   leadInBlinkOn = true;
-  if ((loopEnabledInput.checked || onceEnabledInput.checked) && measures.length > 0) {
+  if (getPlayMode() !== 'all' && measures.length > 0) {
     const { start0 } = getLoopBounds();
     updateMeasureDisplay(start0);
   } else {
@@ -1058,7 +1176,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code !== 'Space') return;
   const el = document.activeElement;
   if (el.tagName === 'SELECT' || el.tagName === 'BUTTON') return;
-  if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'checkbox')) return;
+  if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'checkbox' || el.type === 'radio')) return;
   if (mode !== 'play') return;
   e.preventDefault();
   if (isPlaying) stopPlayback(); else startPlayback();
