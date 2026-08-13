@@ -72,13 +72,28 @@
     color: #555;
     margin-bottom: 4px;
   }
+  /* 박자 눈금과 음표 줄의 폭을 정확히 맞추려면 둘 다 gap 없이 border로만 나눠야 한다 */
+  .beat-guide {
+    display: flex;
+    height: 18px;
+  }
+  .beat-guide div {
+    flex: 1 1 0;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+    line-height: 16px;
+    user-select: none;
+  }
   .measure-row {
     display: flex;
-    gap: 2px;
     height: 40px;
   }
   .note {
     flex-basis: 0;
+    box-sizing: border-box;
     min-width: 20px;
     border: 1px solid #333;
     background: #333;
@@ -109,6 +124,7 @@
   }
   .filler {
     flex-basis: 0;
+    box-sizing: border-box;
     border: 1px dotted #bbb;
     color: #bbb;
     font-size: 12px;
@@ -125,6 +141,12 @@
     font-size: 13px;
     color: #c00;
     min-height: 18px;
+  }
+  #playStatus {
+    font-size: 14px;
+    color: #c00;
+    min-height: 20px;
+    margin-top: 6px;
   }
   /* 본문 오른쪽 남는 공간에 붙는 음표 모양 참고표 */
   #legend {
@@ -237,6 +259,11 @@
   <button id="playOnce">1번 재생</button>
   <button id="playLoop">반복 재생</button>
   <button id="stopBtn">정지</button>
+  <div id="playStatus"></div>
+  <br>
+  <label>준비마디</label>
+  <input type="number" id="leadIn" value="0" min="0" max="4">
+  <span class="hint">(시작 전에 메트로놈만 이만큼 먼저 — 반복 재생이어도 맨 처음 한 번만)</span>
   <br><br>
   <label class="check"><input type="checkbox" id="withClick" checked> 메트로놈 같이</label>
   <br><br>
@@ -274,8 +301,11 @@ let spq = 0.5;          // 4분음표 1개의 길이(초)
 let totalQuarters = 0;
 let noteEvents = [];
 let beatEvents = [];
+let leadEvents = [];              // 준비마디 클릭 (맨 앞에서 한 번만, 반복하지 않는다)
+let leadQuarters = 0;             // 준비마디가 차지하는 길이 → 악보 전체가 이만큼 뒤로 밀린다
 let noteCursor = { i: 0, cycle: 0 };
 let beatCursor = { i: 0, cycle: 0 };
+let leadCursor = { i: 0, cycle: 0 };
 
 const bpmInput = document.getElementById('bpm');
 const beatsInput = document.getElementById('beats');
@@ -285,6 +315,8 @@ const dottedCheck = document.getElementById('dotted');
 const scoreDiv = document.getElementById('score');
 const messageDiv = document.getElementById('message');
 const withClickCheck = document.getElementById('withClick');
+const leadInInput = document.getElementById('leadIn');
+const playStatus = document.getElementById('playStatus');
 const volumeInput = document.getElementById('volume');
 const volumeValue = document.getElementById('volumeValue');
 
@@ -374,6 +406,7 @@ function fmt(quarters) {
 
 function render() {
   const cap = measureQuarters();
+  const beatCount = +beatsInput.value;
   scoreDiv.innerHTML = '';
 
   measures.forEach((m, mi) => {
@@ -390,6 +423,16 @@ function render() {
     const left = cap - usedQuarters(m);
     head.textContent = '마디 ' + (mi + 1) + ' · 남은 길이 ' + fmt(left) + '박';
     box.appendChild(head);
+
+    // 박자 눈금: 한 마디의 기본박 수만큼 같은 폭의 박스를 깔아 음표가 몇 박에 걸치는지 보이게 한다
+    const guide = document.createElement('div');
+    guide.className = 'beat-guide';
+    for (let b = 0; b < beatCount; b++) {
+      const cell = document.createElement('div');
+      cell.textContent = b + 1;
+      guide.appendChild(cell);
+    }
+    box.appendChild(guide);
 
     const row = document.createElement('div');
     row.className = 'measure-row';
@@ -471,6 +514,18 @@ function buildEvents() {
     }
   }
 
+  const leadCount = Math.max(0, Math.min(4, +leadInInput.value || 0));
+  leadEvents = [];
+  for (let mi = 0; mi < leadCount; mi++) {
+    for (let b = 0; b < beatCount; b++) {
+      leadEvents.push({
+        t: mi * cap + b * beatQ, accent: b === 0,
+        measure: mi + 1, total: leadCount, beat: b + 1
+      });
+    }
+  }
+  leadQuarters = leadCount * cap;
+
   totalQuarters = measures.length * cap;
 }
 
@@ -536,15 +591,16 @@ function highlightAt(time, mi, ni) {
   highlightTimers.push(id);
 }
 
-function pump(list, cursor, fire) {
+// offset: 준비마디만큼 뒤로 미는 길이 / canLoop: 반복 재생 때 처음으로 되감을지 (준비마디는 되감지 않는다)
+function pump(list, cursor, offset, canLoop, fire) {
   while (true) {
     if (cursor.i >= list.length) {
-      if (!looping || list.length === 0) return;
+      if (!canLoop || !looping || list.length === 0) return;
       cursor.i = 0;
       cursor.cycle++;
     }
     const ev = list[cursor.i];
-    const time = startTime + (ev.t + cursor.cycle * totalQuarters) * spq;
+    const time = startTime + (offset + ev.t + cursor.cycle * totalQuarters) * spq;
     if (time >= audioCtx.currentTime + scheduleAheadTime) return;
     fire(ev, time);
     cursor.i++;
@@ -552,13 +608,22 @@ function pump(list, cursor, fire) {
 }
 
 function scheduler() {
-  pump(noteEvents, noteCursor, (ev, time) => {
+  // 준비마디는 '메트로놈 같이'를 꺼도 들려야 의미가 있다
+  pump(leadEvents, leadCursor, 0, false, (ev, time) => {
+    playTone(time, ev.accent ? 1400 : 1100, (ev.accent ? 0.45 : 0.3) * vol(), 0.03, 'square');
+    const delay = Math.max(0, (time - audioCtx.currentTime) * 1000);
+    highlightTimers.push(setTimeout(() => {
+      playStatus.textContent = '준비 ' + ev.measure + '/' + ev.total + ' · ' + ev.beat + '박';
+    }, delay));
+  });
+
+  pump(noteEvents, noteCursor, leadQuarters, true, (ev, time) => {
     // 붙임줄로 이어받은 음표(trigger=false)는 앞 소리가 계속 울리므로 새로 내지 않는다
     if (!ev.rest && ev.trigger) playSustain(time, 660, 0.5 * vol(), ev.soundQ * spq);
     highlightAt(time, ev.mi, ev.ni);
   });
   // 클릭을 꺼도 커서는 같이 진행시킨다. 안 그러면 도중에 켰을 때 밀린 클릭이 한꺼번에 터진다.
-  pump(beatEvents, beatCursor, (ev, time) => {
+  pump(beatEvents, beatCursor, leadQuarters, true, (ev, time) => {
     if (!withClickCheck.checked) return;
     playTone(time, ev.accent ? 1400 : 1100, (ev.accent ? 0.35 : 0.2) * vol(), 0.03, 'square');
   });
@@ -588,10 +653,17 @@ function start(loop) {
   startTime = audioCtx.currentTime + 0.1;
   noteCursor = { i: 0, cycle: 0 };
   beatCursor = { i: 0, cycle: 0 };
+  leadCursor = { i: 0, cycle: 0 };
   scheduler();
 
+  // 준비마디가 끝나고 악보가 시작되는 순간 '준비' 표시를 지운다
+  if (leadQuarters > 0) {
+    const ms = (startTime + leadQuarters * spq - audioCtx.currentTime) * 1000;
+    highlightTimers.push(setTimeout(() => { playStatus.textContent = ''; }, ms));
+  }
+
   if (!loop) {
-    const ms = (startTime + totalQuarters * spq - audioCtx.currentTime) * 1000;
+    const ms = (startTime + (leadQuarters + totalQuarters) * spq - audioCtx.currentTime) * 1000;
     endTimerId = setTimeout(stop, ms + 100);
   }
 }
@@ -613,6 +685,7 @@ function stop() {
   }
   highlightTimers.forEach(clearTimeout);
   highlightTimers = [];
+  playStatus.textContent = '';
   document.querySelectorAll('.note.playing').forEach(el => el.classList.remove('playing'));
 }
 
@@ -742,7 +815,8 @@ function save() {
     unit: unitSelect.value,
     measures: measures,
     volume: +volumeInput.value,
-    withClick: withClickCheck.checked
+    withClick: withClickCheck.checked,
+    leadIn: +leadInInput.value
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -770,11 +844,17 @@ function load() {
   volumeInput.value = data.volume ?? 100;
   volumeValue.textContent = volumeInput.value + '%';
   withClickCheck.checked = data.withClick !== false;
+  leadInInput.value = data.leadIn ?? 0;
   resizeMeasures();
 }
 
 volumeInput.onchange = save;
 withClickCheck.onchange = save;
+leadInInput.onchange = () => {
+  leadInInput.value = Math.max(0, Math.min(4, +leadInInput.value || 0));
+  if (isPlaying) stop();   // 준비마디 길이가 바뀌면 시작 시점이 달라진다
+  save();
+};
 
 // ---------- 음표 모양 참고표 ----------
 // 유니코드 음표 기호는 폰트에 따라 안 그려지는 경우가 있어 SVG로 직접 그린다.
