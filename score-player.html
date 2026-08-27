@@ -540,18 +540,175 @@ function renderRecentList() {
   names.forEach(name => {
     const btn = document.createElement('button');
     btn.textContent = name;
-    btn.onclick = () => {
-      pendingRecentName = name;
-      status(`"${name}" 폴더 또는 그 상위 폴더를 선택해주세요.`);
-      folderInput.click();
-    };
+    btn.onclick = () => openRecentByName(name);
     recentListArea.appendChild(btn);
   });
 }
 
-document.getElementById('folderBtn').onclick = () => folderInput.click();
+document.getElementById('folderBtn').onclick = () => pickFolder();
 
 renderRecentList();
+
+function openHandleDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('scorePlayerHandles', 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore('handles'); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getStoredHandle(name) {
+  if (!('indexedDB' in window)) return null;
+  try {
+    const db = await openHandleDB();
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(name);
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } catch { return null; }
+}
+
+async function storeHandle(name, handle) {
+  if (!('indexedDB' in window)) return;
+  try {
+    const db = await openHandleDB();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, name);
+    await new Promise(r => { tx.oncomplete = r; });
+  } catch { /* ignore */ }
+}
+
+async function readPagesFromHandle(dirHandle) {
+  const files = [];
+  for await (const [name, entry] of dirHandle.entries()) {
+    if (entry.kind === 'file' && /^page-\d+\.png$/i.test(name)) {
+      files.push(await entry.getFile());
+    }
+  }
+  files.sort((a, b) => {
+    const na = +a.name.match(/\d+/)[0];
+    const nb = +b.name.match(/\d+/)[0];
+    return na - nb;
+  });
+  return files;
+}
+
+async function readSongsFromParentHandle(dirHandle) {
+  const songs = [];
+  for await (const [name, entry] of dirHandle.entries()) {
+    if (entry.kind !== 'directory') continue;
+    const subFiles = [];
+    for await (const [subName, subEntry] of entry.entries()) {
+      if (subEntry.kind === 'file' && /^page-\d+\.png$/i.test(subName)) {
+        subFiles.push(await subEntry.getFile());
+      }
+    }
+    if (subFiles.length > 0) {
+      subFiles.sort((a, b) => {
+        const na = +a.name.match(/\d+/)[0];
+        const nb = +b.name.match(/\d+/)[0];
+        return na - nb;
+      });
+      songs.push({ name, handle: entry, files: subFiles });
+    }
+  }
+  return songs;
+}
+
+function renderFolderPickerFromSongs(songs) {
+  folderPickArea.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = '선택한 폴더 안의 곡: ';
+  folderPickArea.appendChild(label);
+  for (const { name, handle, files } of songs) {
+    const btn = document.createElement('button');
+    btn.textContent = `${name} (${files.length}장)`;
+    btn.onclick = async () => {
+      await storeHandle(name, handle);
+      folderPickArea.innerHTML = '';
+      loadPagesFromFiles(files, name);
+    };
+    folderPickArea.appendChild(btn);
+  }
+}
+
+async function pickFolder() {
+  if ('showDirectoryPicker' in window) {
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      const directFiles = await readPagesFromHandle(handle);
+      const songs = await readSongsFromParentHandle(handle);
+
+      if (songs.length > 0 && directFiles.length === 0) {
+        if (songs.length === 1) {
+          await storeHandle(songs[0].name, songs[0].handle);
+          loadPagesFromFiles(songs[0].files, songs[0].name);
+        } else {
+          renderFolderPickerFromSongs(songs);
+        }
+        return;
+      }
+      if (directFiles.length > 0) {
+        await storeHandle(handle.name, handle);
+        loadPagesFromFiles(directFiles, handle.name);
+        return;
+      }
+      status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      folderInput.click();
+    }
+  } else {
+    folderInput.click();
+  }
+}
+
+async function openRecentByName(name) {
+  const handle = await getStoredHandle(name);
+  if (handle) {
+    try {
+      const perm = await handle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') {
+        const newPerm = await handle.requestPermission({ mode: 'read' });
+        if (newPerm !== 'granted') throw new Error('denied');
+      }
+      const files = await readPagesFromHandle(handle);
+      if (files.length > 0) {
+        loadPagesFromFiles(files, name);
+        return;
+      }
+    } catch { /* fall through */ }
+  }
+  if ('showDirectoryPicker' in window) {
+    try {
+      const newHandle = await window.showDirectoryPicker({ mode: 'read' });
+      const dirName = newHandle.name;
+      if (dirName === name) {
+        const files = await readPagesFromHandle(newHandle);
+        if (files.length > 0) {
+          await storeHandle(name, newHandle);
+          loadPagesFromFiles(files, name);
+          return;
+        }
+      }
+      const songs = await readSongsFromParentHandle(newHandle);
+      const match = songs.find(s => s.name === name);
+      if (match) {
+        await storeHandle(name, match.handle);
+        loadPagesFromFiles(match.files, name);
+        return;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  pendingRecentName = name;
+  status(`"${name}" 폴더 또는 그 상위 폴더를 선택해주세요.`);
+  folderInput.click();
+}
 
 function renderAnnotatePage(pageNum) {
   const img = pageImagesByNum.get(pageNum);
@@ -1131,6 +1288,9 @@ function nextNote() {
 function scheduler() {
   while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
     if (measureIdx >= measures.length) {
+      const { start0 } = getLoopBounds();
+      measureIdx = start0;
+      updateMeasureDisplay(start0);
       stopPlayback();
       return;
     }
@@ -1167,12 +1327,7 @@ function stopPlayback() {
   highlightBeatIndicator(-1);
   leadInRemaining = 0;
   leadInBlinkOn = true;
-  if (getPlayMode() !== 'all' && measures.length > 0) {
-    const { start0 } = getLoopBounds();
-    updateMeasureDisplay(start0);
-  } else {
-    renderPlayWindow();
-  }
+  renderPlayWindow();
 }
 
 startStopBtn.onclick = () => {
