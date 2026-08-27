@@ -331,10 +331,10 @@ function highlightBeatIndicator(i) {
 }
 
 function clampBpm(v) { return Math.min(300, Math.max(20, v)); }
-document.getElementById('bpmMinus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 5); };
-document.getElementById('bpmMinus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 1); };
-document.getElementById('bpmPlus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 1); };
-document.getElementById('bpmPlus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 5); };
+document.getElementById('bpmMinus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 5); saveState(); };
+document.getElementById('bpmMinus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 1); saveState(); };
+document.getElementById('bpmPlus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 1); saveState(); };
+document.getElementById('bpmPlus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 5); saveState(); };
 bpmInput.onchange = () => { bpmInput.value = clampBpm(+bpmInput.value || 120); saveState(); };
 beatsPerMeasureInput.onchange = saveState;
 beatsPerMeasureInput.addEventListener('input', renderBeatIndicator);
@@ -855,7 +855,14 @@ function computeLineInfos(startLine, count) {
     infos.push({ line, y, dh, scaleFactor });
     y += dh + gap;
   });
-  return { infos, totalHeight: Math.max(1, y - gap) };
+  let totalHeight = Math.max(1, y - gap);
+  const missing = count - windowLines.length;
+  if (missing > 0 && windowLines.length > 0) {
+    const lastLine = windowLines[windowLines.length - 1];
+    const lastDh = lastLine.box.h * (CANVAS_WIDTH / lastLine.box.w);
+    totalHeight += missing * (lastDh + gap);
+  }
+  return { infos, totalHeight };
 }
 
 function drawLineInfosToCanvas(ctx, infos) {
