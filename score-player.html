@@ -120,7 +120,7 @@
     박스 모서리의 파란 점을 드래그하면 박스 크기를 조정할 수 있습니다.
     편집 중인 박스 바깥에서 다시 드래그하면 지금 박스는 초안(보라색)으로 자동 저장되고 새 박스가 시작됩니다.
     이 페이지에 여러 줄을 그린 뒤 "페이지 확정"으로 한 번에 저장하세요.
-    줄(보라색 초안 또는 초록 확정)을 클릭하면 선택되고(주황), Backspace로 삭제할 수 있습니다.
+    줄(보라색 초안 또는 초록 확정)을 클릭하면 선택되고(주황), Backspace 또는 "박스 취소" 버튼으로 삭제할 수 있습니다.
   </p>
   <div>
     <button id="prevPage">이전 페이지</button>
@@ -889,9 +889,13 @@ function selectLineAt(mx, my) {
 }
 
 document.getElementById('cancelBoxBtn').onclick = () => {
-  pendingBox = null;
-  pendingBarX = [];
-  drawAnnotateOverlaysFresh();
+  if (pendingBox) {
+    pendingBox = null;
+    pendingBarX = [];
+    drawAnnotateOverlaysFresh();
+  } else if (selectedLineIdx !== null) {
+    deleteSelectedLine();
+  }
 };
 
 document.getElementById('undoPointBtn').onclick = () => {
