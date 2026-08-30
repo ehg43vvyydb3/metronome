@@ -1,0 +1,1970 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>배킹트랙 싱크 플레이어</title>
+<style>
+  :root{
+    --bg:#15171c;
+    --panel:#1d2027;
+    --line:#2a2e38;
+    --text:#e6e8ec;
+    --sub:#8a8f9c;
+    --accent:#5fd4a3;
+    --marker:#ff6b6b;
+    --grid:#4a90e2;
+    --barline:#e8c14a;
+    --mono:'SF Mono','Consolas',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,'Segoe UI',sans-serif;
+    padding:16px;
+  }
+  h1{
+    font-size:16px;
+    font-weight:600;
+    margin:0 0 4px;
+    letter-spacing:0.02em;
+  }
+  .sub{
+    color:var(--sub);
+    font-size:12px;
+    margin:0 0 16px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px;
+    margin-bottom:12px;
+  }
+  .row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    align-items:center;
+    margin-top:10px;
+  }
+  .row:first-child{margin-top:0;}
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+  label{
+    font-size:11px;
+    color:var(--sub);
+  }
+  input[type=number], input[type=text]{
+    background:#0e1014;
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:6px;
+    padding:7px 8px;
+    font-family:var(--mono);
+    font-size:13px;
+    width:88px;
+  }
+  input.narrow{width:50px; padding:5px 6px;}
+  button{
+    background:#262b35;
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:6px;
+    padding:8px 12px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  button:active{transform:translateY(1px);}
+  button:disabled{opacity:0.4; cursor:not-allowed;}
+  button.primary{background:var(--accent); color:#0e1014; border-color:var(--accent); font-weight:600;}
+  button.warn{background:var(--marker); color:#1a0e0e; border-color:var(--marker); font-weight:600;}
+  button.modeBtn.active{background:var(--grid); color:#fff; border-color:var(--grid);}
+  button.toggle.on{background:var(--grid); color:#fff; border-color:var(--grid);}
+  .stats{
+    display:flex;
+    gap:16px;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--sub);
+    margin-top:8px;
+    flex-wrap:wrap;
+  }
+  .stats b{color:var(--text);}
+  .legend{
+    display:flex;
+    gap:14px;
+    font-size:11px;
+    color:var(--sub);
+    margin-top:8px;
+    flex-wrap:wrap;
+  }
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
+  textarea{
+    width:100%;
+    height:110px;
+    background:#0e1014;
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    padding:8px;
+  }
+  .hint{color:var(--sub); font-size:12px; margin:0 0 6px;}
+  .hidden{display:none !important;}
+
+  #waveScroll{
+    width:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+    border-radius:8px;
+    background:#0e1014;
+    border:1px solid var(--line);
+  }
+  #wave{
+    display:block;
+    touch-action:none;
+  }
+  #annotateCanvas{
+    width:760px;
+    max-width:100%;
+    display:block;
+    border-radius:8px;
+    background:#0e1014;
+    border:1px solid var(--line);
+    cursor:crosshair;
+  }
+  #playCanvas{
+    max-width:100%;
+    display:block;
+    border-radius:8px;
+    background:#0e1014;
+    border:1px solid var(--line);
+    cursor:pointer;
+  }
+  #beatIndicator{
+    display:flex;
+    gap:8px;
+    margin:10px 0;
+    flex-wrap:wrap;
+  }
+  .beatBox{
+    width:34px;
+    height:34px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    text-align:center;
+    line-height:34px;
+    font-size:14px;
+    font-family:var(--mono);
+    color:var(--sub);
+  }
+  .beatBox.current{outline:2px solid var(--marker); color:var(--text);}
+  .modeRow{margin-bottom:4px; white-space:nowrap;}
+  input[type=range]{width:160px; vertical-align:middle;}
+
+  body.practice-mode > *:not(#playPanel){display:none !important;}
+  body.practice-mode #playPanel .practiceHide{display:none !important;}
+  body.practice-mode #playPanel{margin:0; padding:0;}
+  #exitPracticeBtn{position:fixed; top:10px; right:10px; z-index:10;}
+</style>
+</head>
+<body>
+
+<div id="titleBlock">
+  <h1>배킹트랙 싱크 플레이어</h1>
+  <p class="sub">탭 악보 폴더 하나(page-N.png + 오디오 파일)를 불러오면, 배킹트랙 재생 시간에 맞춰 탭 마디가 자동으로 넘어갑니다.</p>
+</div>
+
+<div class="panel" id="loaderPanel">
+  <div class="row">
+    <button id="folderBtn">폴더 불러오기</button>
+    <span class="hint" style="margin:0;">scores/곡이름/ 폴더 안에 page-N.png와 오디오 파일(mp3/wav/m4a 등) 1개를 함께 넣어두면 한 번에 불러옵니다.</span>
+  </div>
+  <div id="status" class="hint"></div>
+  <div id="recentListArea" class="hint"></div>
+  <div id="folderPickArea" class="hint"></div>
+  <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden">
+</div>
+
+<div class="panel" id="modeButtonsPanel">
+  <button id="modeAudioBtn" class="modeBtn">오디오 싱크</button>
+  <button id="modeAnnotateBtn" class="modeBtn">마디 지정</button>
+  <button id="modePlayBtn" class="modeBtn" disabled>재생</button>
+</div>
+
+<div class="panel hidden" id="audioSyncPanel">
+  <p class="hint hidden" id="noAudioHint">불러온 폴더에 오디오 파일이 없습니다. scores/곡이름/ 폴더에 오디오 파일을 넣고 폴더를 다시 불러오세요.</p>
+  <div id="waveScroll"><canvas id="wave" height="140"></canvas></div>
+  <div class="row">
+    <button id="zoomOutBtn">− 축소</button>
+    <button id="zoomInBtn">+ 확대</button>
+    <button id="zoomResetBtn">전체보기</button>
+    <span id="zoomValue" class="hint" style="margin:0;">100%</span>
+  </div>
+  <div class="row">
+    <button id="playBtn" class="primary">▶ 재생</button>
+    <button id="markStartBtn" class="toggle">📍 클릭으로 시작점 지정</button>
+    <button id="setStartHereBtn">현재 재생위치 = 시작점</button>
+  </div>
+  <div class="stats">
+    <span>현재 위치: <b id="curTime">0.00</b>s</span>
+    <span>시작점: <b id="startTimeShow">-</b>s</span>
+    <span>길이: <b id="durShow">-</b>s</span>
+  </div>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--marker)"></span>시작점</span>
+    <span><span class="dot" style="background:var(--grid)"></span>일반 박</span>
+    <span><span class="dot" style="background:var(--barline)"></span>마디 첫박</span>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>BPM</label>
+      <div class="row" style="margin-top:0;">
+        <button id="bpmMinus5">-5</button>
+        <button id="bpmMinus1">-1</button>
+        <input type="number" id="bpmInput" value="120" step="0.1">
+        <button id="bpmPlus1">+1</button>
+        <button id="bpmPlus5">+5</button>
+        <button id="bpmHalveBtn" title="옥타브 오류(정확히 절반으로 느껴질 때) 보정">½</button>
+        <button id="bpmDoubleBtn" title="옥타브 오류(정확히 두 배로 느껴질 때) 보정">×2</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>박자(분자)</label>
+      <input type="number" id="beatsPerBar" value="4" min="1">
+    </div>
+    <div class="field">
+      <label>준비박 개수</label>
+      <input type="number" id="countIn" value="4" min="0">
+    </div>
+    <button id="tapBtn">🥁 탭 템포</button>
+    <button id="applyAnalyzedBtn" class="hidden">📥 분석값 적용</button>
+  </div>
+  <p class="hint" id="tapHint">탭 템포 버튼을 박자에 맞춰 4번 이상 눌러보세요.</p>
+  <p class="hint" id="analyzedHint">analyze_audio.py로 미리 분석해두면(scores/곡이름/audio_meta.json) 폴더를 불러올 때 BPM을 자동으로 채워줍니다.</p>
+  <div class="row">
+    <div class="field">
+      <label>재생 볼륨</label>
+      <input type="range" id="volume" min="0" max="200" value="100">
+    </div>
+    <span id="volumeValue" class="hint" style="margin:0;">100%</span>
+  </div>
+</div>
+
+<div class="panel hidden" id="annotatePanel">
+  <p class="hint">
+    드래그로 한 줄(TAB 라인) 영역을 지정하세요. 줄의 시작/끝은 자동으로 잡히므로,
+    그 사이 마디를 나누는 경계만 왼쪽부터 순서대로 클릭하면 됩니다 (예: 4마디면 드래그 + 클릭 3번).
+    이미 찍은 점 근처를 다시 클릭하면 그 점이 삭제됩니다.
+    박스 모서리의 파란 점을 드래그하면 박스 크기를 조정할 수 있습니다.
+    편집 중인 박스 바깥에서 다시 드래그하면 지금 박스는 초안(보라색)으로 자동 저장되고 새 박스가 시작됩니다.
+    이 페이지에 여러 줄을 그린 뒤 "페이지 확정"으로 한 번에 저장하세요.
+    줄(보라색 초안 또는 초록 확정)을 클릭하면 선택되고(주황), Backspace 또는 "박스 취소" 버튼으로 삭제할 수 있습니다.
+  </p>
+  <div class="row">
+    <button id="prevPage">이전 페이지</button>
+    <span id="pageInfo">페이지 -/-</span>
+    <button id="nextPage">다음 페이지</button>
+  </div>
+  <canvas id="annotateCanvas" width="760" height="400"></canvas>
+  <div class="row">
+    <button id="cancelBoxBtn">박스 취소</button>
+    <button id="undoPointBtn">마지막 점 취소</button>
+    <button id="undoLastDraftBtn">마지막 초안 삭제</button>
+    <button id="confirmPageBtn" class="primary">페이지 확정</button>
+    <button id="resetAllBtn" class="warn">전체 초기화</button>
+  </div>
+  <div id="lineCount" class="hint"></div>
+</div>
+
+<div class="panel hidden" id="playPanel">
+  <div class="row">
+    <button id="startStop" class="primary">시작</button>
+    <button id="resetToStart" class="practiceHide">처음으로</button>
+    <button id="fullscreenBtn" class="practiceHide">전체화면 연습</button>
+    <button id="exitPracticeBtn" class="hidden">연습 종료</button>
+    <span id="measureLabel" class="practiceHide">마디</span>
+    <input type="number" id="measureJumpInput" min="1" value="1" class="narrow practiceHide">
+    <span class="practiceHide">/ <span id="measureTotal">0</span></span>
+  </div>
+  <div class="row practiceHide">
+    <div class="field">
+      <label>연습 BPM (재생 속도)</label>
+      <div class="row" style="margin-top:0;">
+        <button id="practiceBpmMinus5">-5</button>
+        <button id="practiceBpmMinus1">-1</button>
+        <input type="number" id="practiceBpmInput" min="20" max="300" step="0.1">
+        <button id="practiceBpmPlus1">+1</button>
+        <button id="practiceBpmPlus5">+5</button>
+        <button id="practiceBpmResetBtn">원래 속도</button>
+      </div>
+    </div>
+    <span id="practiceRateHint" class="hint" style="margin:0;"></span>
+  </div>
+  <div id="playModeRows" class="practiceHide">
+    <div class="modeRow">
+      <label style="width:auto"><input type="checkbox" id="loopEnabled"> 구간 반복</label>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="all" checked> 전체 재생</label>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once1"> 일부 재생 1</label>
+      <input type="number" data-range-start="once1" min="1" value="1" class="narrow">
+      <button data-set-start="once1">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once1" min="1" value="1" class="narrow">
+      <button data-set-end="once1">현재→끝</button>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once2"> 일부 재생 2</label>
+      <input type="number" data-range-start="once2" min="1" value="1" class="narrow">
+      <button data-set-start="once2">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once2" min="1" value="1" class="narrow">
+      <button data-set-end="once2">현재→끝</button>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once3"> 일부 재생 3</label>
+      <input type="number" data-range-start="once3" min="1" value="1" class="narrow">
+      <button data-set-start="once3">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once3" min="1" value="1" class="narrow">
+      <button data-set-end="once3">현재→끝</button>
+    </div>
+  </div>
+  <span id="beatIndicator" class="practiceHide"></span>
+  <canvas id="playCanvas" width="760" height="400"></canvas>
+</div>
+
+<script>
+// ===== 상태 =====
+let songName = null;
+let pageNumbers = [];
+let pageImagesByNum = new Map();
+let currentAnnotatePage = 1;
+const ANNOTATE_CANVAS_WIDTH = 760;
+let annotateScale = 1;
+
+let lines = [];
+let pageLines = [];
+let pendingBox = null;
+let pendingBarX = [];
+let dragStart = null;
+let resizeHandle = null;
+let selectedLineIdx = null;
+let selectedLineSource = null;
+const HANDLE_R = 6;
+
+let measures = [];
+let measuresByLine = new Map();
+let peakCache = new Map();
+const PEAKS_PER_MEASURE = 60;
+const WAVE_BAND_HEIGHT = 28;
+const LINE_GAP = 14;
+
+let currentLineIndex = 0;
+let windowStartLine = 0;
+let displayMeasureIdx = 0;
+let lastDrawInfos = [];
+let slideAnimating = false;
+
+let mode = 'annotate'; // 'audio' | 'annotate' | 'play'
+let practiceMode = false;
+let playCanvasWidth = 760;
+
+let audioCtx = null;
+let audioBuffer = null;
+let sourceNode = null;
+let gainNode = null;
+let isPlaying = false;
+let playbackSource = null; // 'preview' | 'measurePlay'
+let playStartedAt = 0;
+let playOffset = 0;
+let currentRate = 1; // 지금 재생 중인 소스에 적용된 배속(파일시간 ↔ 실제시간 환산에 필요)
+let startTime = null;
+let fileName = '';
+let markMode = false;
+let tapTimes = [];
+let overviewPeaksCache = null;
+let waveZoom = 1;
+const MIN_WAVE_ZOOM = 1, MAX_WAVE_ZOOM = 40;
+let rafId = null;
+let lastFrameMeasureIdx = -1;
+let dpr = window.devicePixelRatio || 1;
+let detectedMeta = null; // analyze_audio.py가 써둔 audio_meta.json 내용(있으면)
+
+const AUDIO_EXT_RE = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+const PNG_NAME_RE = /^page-\d+\.png$/i;
+const META_FILE_RE = /^audio_meta\.json$/i;
+
+// ===== DOM =====
+const folderBtn = document.getElementById('folderBtn');
+const folderInput = document.getElementById('folderInput');
+const statusEl = document.getElementById('status');
+const recentListArea = document.getElementById('recentListArea');
+const folderPickArea = document.getElementById('folderPickArea');
+
+const modeAudioBtn = document.getElementById('modeAudioBtn');
+const modeAnnotateBtn = document.getElementById('modeAnnotateBtn');
+const modePlayBtn = document.getElementById('modePlayBtn');
+const audioSyncPanel = document.getElementById('audioSyncPanel');
+const annotatePanel = document.getElementById('annotatePanel');
+const playPanel = document.getElementById('playPanel');
+const noAudioHint = document.getElementById('noAudioHint');
+
+const waveScroll = document.getElementById('waveScroll');
+const canvas = document.getElementById('wave');
+const waveCtx = canvas.getContext('2d');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+const zoomValueEl = document.getElementById('zoomValue');
+const playBtn = document.getElementById('playBtn');
+const markStartBtn = document.getElementById('markStartBtn');
+const setStartHereBtn = document.getElementById('setStartHereBtn');
+const curTimeEl = document.getElementById('curTime');
+const startTimeShowEl = document.getElementById('startTimeShow');
+const durShowEl = document.getElementById('durShow');
+const bpmInput = document.getElementById('bpmInput');
+const beatsPerBarInput = document.getElementById('beatsPerBar');
+const countInInput = document.getElementById('countIn');
+const tapBtn = document.getElementById('tapBtn');
+const tapHint = document.getElementById('tapHint');
+const applyAnalyzedBtn = document.getElementById('applyAnalyzedBtn');
+const analyzedHint = document.getElementById('analyzedHint');
+const volumeInput = document.getElementById('volume');
+const volumeValue = document.getElementById('volumeValue');
+
+const annotateCanvas = document.getElementById('annotateCanvas');
+const pageInfo = document.getElementById('pageInfo');
+const lineCountEl = document.getElementById('lineCount');
+
+const playCanvas = document.getElementById('playCanvas');
+const startStopBtn = document.getElementById('startStop');
+const resetToStartBtn = document.getElementById('resetToStart');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const exitPracticeBtn = document.getElementById('exitPracticeBtn');
+const measureLabelEl = document.getElementById('measureLabel');
+const measureJumpInput = document.getElementById('measureJumpInput');
+const measureTotalEl = document.getElementById('measureTotal');
+const loopEnabledInput = document.getElementById('loopEnabled');
+const beatIndicatorEl = document.getElementById('beatIndicator');
+const practiceBpmInput = document.getElementById('practiceBpmInput');
+const practiceRateHint = document.getElementById('practiceRateHint');
+
+const RANGE_KEYS = ['once1', 'once2', 'once3'];
+const rangeInputs = {};
+for (const key of RANGE_KEYS) {
+  rangeInputs[key] = {
+    start: document.querySelector(`[data-range-start="${key}"]`),
+    end: document.querySelector(`[data-range-end="${key}"]`)
+  };
+}
+const playModeRadios = Array.from(document.querySelectorAll('input[name="playMode"]'));
+
+function status(msg) { statusEl.textContent = msg; }
+function clampBpm(v) { return Math.min(300, Math.max(20, v)); }
+function getPlayMode() {
+  const checked = playModeRadios.find(r => r.checked);
+  return checked ? checked.value : 'all';
+}
+function setPlayMode(value) {
+  const radio = playModeRadios.find(r => r.value === value) || playModeRadios[0];
+  radio.checked = true;
+}
+function getLoopBounds() {
+  const inputs = rangeInputs[getPlayMode()];
+  if (!inputs) return { start0: 0, end0: Math.max(0, measures.length - 1) };
+  const end0 = Math.min(measures.length - 1, Math.max(0, (+inputs.end.value || measures.length) - 1));
+  const start0 = Math.max(0, Math.min(end0, (+inputs.start.value || 1) - 1));
+  return { start0, end0 };
+}
+function totalMeasures() {
+  return lines.reduce((sum, l) => sum + Math.max(0, l.barX.length - 1), 0);
+}
+function updateLineCount() {
+  const draftInfo = pageLines.length > 0 ? ` · 이 페이지 초안: ${pageLines.length}줄 (미확정)` : '';
+  lineCountEl.textContent = `확정된 줄: ${lines.length} / 마디: ${totalMeasures()}${draftInfo}`;
+}
+function updateModeAvailability() {
+  modePlayBtn.disabled = !(lines.length > 0 && audioBuffer);
+}
+
+// ===== 시간 ↔ 마디 매핑 =====
+function beatInterval() { return 60 / (+bpmInput.value || 120); }
+function measureDuration() { return (+beatsPerBarInput.value || 4) * beatInterval(); }
+function measureStartTime(i) { return (startTime || 0) + i * measureDuration(); }
+function countInStartTime() { return (startTime || 0) - (+countInInput.value || 0) * beatInterval(); }
+
+// 연습 속도(배속). 위 매핑은 전부 "오디오 파일 안의 시간" 기준이고 배속과 무관하므로,
+// 배속은 실제 시간으로 환산하는 두 곳 — 재생 시작 예약(playFrom)과 현재 위치
+// 계산(getCurrentTime) — 에서만 반영하면 나머지 로직은 그대로 맞는다.
+function practiceBpm() {
+  const v = +practiceBpmInput.value;
+  return v > 0 ? v : (+bpmInput.value || 120);
+}
+function playbackRate() {
+  return Math.min(4, Math.max(0.25, practiceBpm() / (+bpmInput.value || 120)));
+}
+
+function computePlaybackState(t) {
+  const st = startTime || 0;
+  const cis = countInStartTime();
+  if (t < cis) return { phase: 'before' };
+  if (t < st) {
+    const beatIdx = Math.floor((t - cis) / beatInterval());
+    return { phase: 'preroll', prerollBeatIdx: beatIdx };
+  }
+  const md = measureDuration();
+  const globalMeasureIdx = Math.floor((t - st) / md);
+  if (globalMeasureIdx >= measures.length) return { phase: 'ended' };
+  const beatInMeasure = Math.floor(((t - st) % md) / beatInterval());
+  return { phase: 'playing', globalMeasureIdx, beatInMeasure };
+}
+// ===== 폴더 불러오기 (탭 이미지 + 오디오 동시 로드) =====
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function songFolderName(file) {
+  const rel = file.webkitRelativePath || file.name;
+  const parts = rel.split('/');
+  return parts.length >= 2 ? parts[parts.length - 2] : '';
+}
+
+function groupSongFiles(files) {
+  const groups = new Map();
+  for (const f of files) {
+    const isPng = PNG_NAME_RE.test(f.name);
+    const isAudio = AUDIO_EXT_RE.test(f.name);
+    const isMeta = META_FILE_RE.test(f.name);
+    if (!isPng && !isAudio && !isMeta) continue;
+    const folder = songFolderName(f) || 'unknown';
+    if (!groups.has(folder)) groups.set(folder, { pngFiles: [], audioFiles: [], metaFile: null });
+    if (isPng) groups.get(folder).pngFiles.push(f);
+    else if (isAudio) groups.get(folder).audioFiles.push(f);
+    else groups.get(folder).metaFile = f;
+  }
+  return groups;
+}
+
+folderBtn.onclick = () => pickFolder();
+
+folderInput.onchange = async (e) => {
+  const files = Array.from(e.target.files);
+  e.target.value = '';
+  const wanted = pendingRecentName;
+  pendingRecentName = null;
+  folderPickArea.innerHTML = '';
+
+  const groups = groupSongFiles(files);
+  const validGroups = new Map([...groups].filter(([, v]) => v.pngFiles.length > 0));
+  if (validGroups.size === 0) {
+    status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
+    return;
+  }
+  if (wanted && validGroups.has(wanted)) {
+    const g = validGroups.get(wanted);
+    await loadProjectFromFiles(g.pngFiles, g.audioFiles, wanted, g.metaFile);
+    return;
+  }
+  if (validGroups.size === 1) {
+    const [folder, g] = [...validGroups][0];
+    await loadProjectFromFiles(g.pngFiles, g.audioFiles, folder, g.metaFile);
+    return;
+  }
+  status(wanted
+    ? `"${wanted}" 폴더를 찾지 못했습니다. 아래에서 곡을 선택하세요.`
+    : '선택한 폴더 안에 곡이 여러 개입니다. 아래에서 곡을 선택하세요.');
+  renderFolderPicker(validGroups);
+};
+
+function renderFolderPicker(groups) {
+  folderPickArea.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = '선택한 폴더 안의 곡: ';
+  folderPickArea.appendChild(label);
+  for (const [folder, g] of groups) {
+    const btn = document.createElement('button');
+    btn.textContent = `${folder} (${g.pngFiles.length}장 · ${g.audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
+    btn.onclick = () => { folderPickArea.innerHTML = ''; loadProjectFromFiles(g.pngFiles, g.audioFiles, folder, g.metaFile); };
+    folderPickArea.appendChild(btn);
+  }
+}
+
+function getRecentNames() {
+  const raw = localStorage.getItem('backingTrackSync:recentNames');
+  return raw ? JSON.parse(raw) : [];
+}
+function addRecentName(name) {
+  let names = getRecentNames();
+  names = names.filter(n => n !== name);
+  names.unshift(name);
+  names = names.slice(0, 8);
+  localStorage.setItem('backingTrackSync:recentNames', JSON.stringify(names));
+}
+let pendingRecentName = null;
+function renderRecentList() {
+  const names = getRecentNames();
+  recentListArea.innerHTML = '';
+  if (names.length === 0) return;
+  const label = document.createElement('span');
+  label.textContent = '최근 열기: ';
+  recentListArea.appendChild(label);
+  names.forEach(name => {
+    const btn = document.createElement('button');
+    btn.textContent = name;
+    btn.onclick = () => openRecentByName(name);
+    recentListArea.appendChild(btn);
+  });
+}
+renderRecentList();
+
+function openHandleDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('backingTrackSyncHandles', 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore('handles'); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function getStoredHandle(name) {
+  if (!('indexedDB' in window)) return null;
+  try {
+    const db = await openHandleDB();
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(name);
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } catch { return null; }
+}
+async function storeHandle(name, handle) {
+  if (!('indexedDB' in window)) return;
+  try {
+    const db = await openHandleDB();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, name);
+    await new Promise(r => { tx.oncomplete = r; });
+  } catch { /* ignore */ }
+}
+
+function sortPageFiles(files) {
+  return files.slice().sort((a, b) => (+a.name.match(/\d+/)[0]) - (+b.name.match(/\d+/)[0]));
+}
+
+async function readPagesFromHandle(dirHandle) {
+  const pngFiles = [];
+  const audioFiles = [];
+  let metaFile = null;
+  for await (const [name, entry] of dirHandle.entries()) {
+    if (entry.kind !== 'file') continue;
+    if (PNG_NAME_RE.test(name)) pngFiles.push(await entry.getFile());
+    else if (AUDIO_EXT_RE.test(name)) audioFiles.push(await entry.getFile());
+    else if (META_FILE_RE.test(name)) metaFile = await entry.getFile();
+  }
+  audioFiles.sort((a, b) => a.name.localeCompare(b.name));
+  return { pngFiles: sortPageFiles(pngFiles), audioFiles, metaFile };
+}
+
+async function readSongsFromParentHandle(dirHandle) {
+  const songs = [];
+  for await (const [name, entry] of dirHandle.entries()) {
+    if (entry.kind !== 'directory') continue;
+    const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(entry);
+    if (pngFiles.length > 0) songs.push({ name, handle: entry, pngFiles, audioFiles, metaFile });
+  }
+  return songs;
+}
+
+function renderFolderPickerFromSongs(songs) {
+  folderPickArea.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = '선택한 폴더 안의 곡: ';
+  folderPickArea.appendChild(label);
+  for (const { name, handle, pngFiles, audioFiles, metaFile } of songs) {
+    const btn = document.createElement('button');
+    btn.textContent = `${name} (${pngFiles.length}장 · ${audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
+    btn.onclick = async () => {
+      await storeHandle(name, handle);
+      folderPickArea.innerHTML = '';
+      loadProjectFromFiles(pngFiles, audioFiles, name, metaFile);
+    };
+    folderPickArea.appendChild(btn);
+  }
+}
+
+async function pickFolder() {
+  if ('showDirectoryPicker' in window) {
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      const direct = await readPagesFromHandle(handle);
+      const songs = await readSongsFromParentHandle(handle);
+      if (songs.length > 0 && direct.pngFiles.length === 0) {
+        if (songs.length === 1) {
+          await storeHandle(songs[0].name, songs[0].handle);
+          loadProjectFromFiles(songs[0].pngFiles, songs[0].audioFiles, songs[0].name, songs[0].metaFile);
+        } else {
+          renderFolderPickerFromSongs(songs);
+        }
+        return;
+      }
+      if (direct.pngFiles.length > 0) {
+        await storeHandle(handle.name, handle);
+        loadProjectFromFiles(direct.pngFiles, direct.audioFiles, handle.name, direct.metaFile);
+        return;
+      }
+      status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      folderInput.click();
+    }
+  } else {
+    folderInput.click();
+  }
+}
+
+async function openRecentByName(name) {
+  const handle = await getStoredHandle(name);
+  if (handle) {
+    try {
+      const perm = await handle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') {
+        const newPerm = await handle.requestPermission({ mode: 'read' });
+        if (newPerm !== 'granted') throw new Error('denied');
+      }
+      const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(handle);
+      if (pngFiles.length > 0) { loadProjectFromFiles(pngFiles, audioFiles, name, metaFile); return; }
+    } catch { /* fall through */ }
+  }
+  if ('showDirectoryPicker' in window) {
+    try {
+      const newHandle = await window.showDirectoryPicker({ mode: 'read' });
+      const dirName = newHandle.name;
+      if (dirName === name) {
+        const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(newHandle);
+        if (pngFiles.length > 0) {
+          await storeHandle(name, newHandle);
+          loadProjectFromFiles(pngFiles, audioFiles, name, metaFile);
+          return;
+        }
+      }
+      const songs = await readSongsFromParentHandle(newHandle);
+      const match = songs.find(s => s.name === name);
+      if (match) {
+        await storeHandle(name, match.handle);
+        loadProjectFromFiles(match.pngFiles, match.audioFiles, name, match.metaFile);
+        return;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  pendingRecentName = name;
+  status(`"${name}" 폴더 또는 그 상위 폴더를 선택해주세요.`);
+  folderInput.click();
+}
+
+// ===== 저장/복원 =====
+function storageKey() { return `backingTrackSync:${songName}`; }
+function saveState() {
+  if (!songName) return;
+  const data = {
+    bpm: +bpmInput.value,
+    beatsPerBar: +beatsPerBarInput.value,
+    countInBeats: +countInInput.value,
+    startTime: startTime,
+    practiceBpm: practiceBpm(),
+    playMode: getPlayMode(),
+    loopEnabled: loopEnabledInput.checked,
+    ranges: Object.fromEntries(RANGE_KEYS.map(key => [key, {
+      start: +rangeInputs[key].start.value || 1,
+      end: +rangeInputs[key].end.value || 1
+    }])),
+    volume: +volumeInput.value,
+    lines: lines
+  };
+  localStorage.setItem(storageKey(), JSON.stringify(data));
+}
+function loadState() {
+  const raw = localStorage.getItem(storageKey());
+  return raw ? JSON.parse(raw) : null;
+}
+
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+async function loadProjectFromFiles(pngFiles, audioFiles, name, metaFile) {
+  if (pngFiles.length === 0) { status('page-N.png 형식의 이미지를 찾을 수 없습니다.'); return; }
+  status('불러오는 중...');
+  songName = name;
+  addRecentName(name);
+  renderRecentList();
+
+  pageImagesByNum = new Map();
+  pageNumbers = [];
+  for (const f of sortPageFiles(pngFiles)) {
+    const num = +f.name.match(/\d+/)[0];
+    const img = await loadImage(f);
+    pageImagesByNum.set(num, img);
+    pageNumbers.push(num);
+  }
+  currentAnnotatePage = pageNumbers[0];
+  pendingBox = null;
+  pendingBarX = [];
+  pageLines = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+
+  const saved = loadState();
+  lines = saved ? saved.lines : [];
+
+  audioBuffer = null;
+  fileName = '';
+  overviewPeaksCache = null;
+  let audioMsg = '오디오 없음';
+  if (audioFiles.length > 0) {
+    const chosen = audioFiles[0];
+    fileName = chosen.name;
+    try {
+      ensureAudioCtx();
+      const arrayBuf = await chosen.arrayBuffer();
+      audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+      durShowEl.textContent = audioBuffer.duration.toFixed(2);
+      noAudioHint.classList.add('hidden');
+      audioMsg = audioFiles.length > 1
+        ? `오디오 "${chosen.name}" 사용 (${audioFiles.length}개 중 첫 번째)`
+        : `오디오 "${chosen.name}" (${audioBuffer.duration.toFixed(2)}s)`;
+    } catch (err) {
+      audioBuffer = null;
+      audioMsg = '오디오 디코딩 실패: ' + err.message;
+    }
+  } else {
+    noAudioHint.classList.remove('hidden');
+  }
+
+  detectedMeta = null;
+  if (metaFile) {
+    try {
+      const parsed = JSON.parse(await metaFile.text());
+      if (typeof parsed.bpm === 'number') detectedMeta = parsed;
+    } catch { /* 분석 파일이 손상됐으면 무시 */ }
+  }
+  applyAnalyzedBtn.classList.toggle('hidden', !detectedMeta);
+
+  if (saved) {
+    bpmInput.value = saved.bpm ?? 120;
+    beatsPerBarInput.value = saved.beatsPerBar ?? 4;
+    countInInput.value = saved.countInBeats ?? 0;
+    startTime = audioBuffer ? (saved.startTime ?? 0) : null;
+    setPlayMode(saved.playMode || 'all');
+    loopEnabledInput.checked = !!saved.loopEnabled;
+    for (const key of RANGE_KEYS) {
+      const r = (saved.ranges && saved.ranges[key]) || {};
+      rangeInputs[key].start.value = r.start || 1;
+      rangeInputs[key].end.value = r.end || 1;
+    }
+    volumeInput.value = saved.volume ?? 100;
+    practiceBpmInput.value = saved.practiceBpm ?? saved.bpm ?? 120;
+  } else {
+    bpmInput.value = detectedMeta ? detectedMeta.bpm : 120;
+    beatsPerBarInput.value = 4;
+    countInInput.value = 0;
+    startTime = audioBuffer ? 0 : null;
+    setPlayMode('all');
+    loopEnabledInput.checked = false;
+    for (const key of RANGE_KEYS) {
+      rangeInputs[key].start.value = 1;
+      rangeInputs[key].end.value = 1;
+    }
+    volumeInput.value = 100;
+    practiceBpmInput.value = bpmInput.value; // 기본은 오디오 싱크의 BPM = 원래 속도
+  }
+  volumeValue.textContent = volumeInput.value + '%';
+  updatePracticeRateHint();
+  playOffset = 0;
+  startTimeShowEl.textContent = startTime != null ? startTime.toFixed(2) : '-';
+  curTimeEl.textContent = '0.00';
+
+  if (detectedMeta && !saved) {
+    analyzedHint.textContent = `analyze_audio.py 분석값을 기본값으로 불러왔습니다: BPM ${detectedMeta.bpm}. 시작점은 파형을 클릭해 직접 지정하세요.`;
+  } else if (detectedMeta && saved) {
+    analyzedHint.textContent = '이미 저장된 설정이 있어 분석값을 자동 적용하지 않았습니다. 필요하면 "분석값 적용" 버튼을 누르세요.';
+  } else {
+    analyzedHint.textContent = 'analyze_audio.py로 미리 분석해두면(scores/곡이름/audio_meta.json) 폴더를 불러올 때 BPM을 자동으로 채워줍니다.';
+  }
+
+  renderBeatIndicator();
+  computeMeasures();
+  updateLineCount();
+  updateModeAvailability();
+
+  status(`[${songName}] 탭 ${lines.length}줄 / ${totalMeasures()}마디 · ${audioMsg}`);
+
+  if (saved && lines.length > 0) {
+    setMode(audioBuffer ? 'play' : 'annotate');
+  } else {
+    setMode(audioBuffer ? 'audio' : 'annotate');
+  }
+}
+
+// ===== 오디오 싱크 (파형/BPM/시작점) =====
+function getPeaksForRange(buffer, tStart, tEnd, targetWidth) {
+  const n = Math.max(1, targetWidth);
+  const peaks = new Float32Array(n);
+  const data = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const startSample = Math.floor(tStart * sr);
+  const endSample = Math.floor(tEnd * sr);
+  const total = endSample - startSample;
+  if (total <= 0) return peaks;
+  const blockSize = Math.max(1, Math.floor(total / n));
+  for (let i = 0; i < n; i++) {
+    const s = startSample + i * blockSize;
+    let max = 0;
+    for (let j = 0; j < blockSize; j++) {
+      const idx = s + j;
+      if (idx < 0 || idx >= data.length) continue;
+      const v = Math.abs(data[idx]);
+      if (v > max) max = v;
+    }
+    peaks[i] = max;
+  }
+  return peaks;
+}
+
+function computeOverviewPeaks() {
+  overviewPeaksCache = audioBuffer ? getPeaksForRange(audioBuffer, 0, audioBuffer.duration, Math.floor(canvas.width / 2)) : null;
+}
+
+function resizeCanvas() {
+  const containerWidth = waveScroll.clientWidth || waveScroll.parentElement.clientWidth || 700;
+  const cssWidth = Math.round(containerWidth * waveZoom);
+  canvas.style.width = cssWidth + 'px';
+  canvas.width = cssWidth * dpr;
+  canvas.height = 140 * dpr;
+  computeOverviewPeaks();
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function setWaveZoom(z) {
+  waveZoom = Math.min(MAX_WAVE_ZOOM, Math.max(MIN_WAVE_ZOOM, z));
+  zoomValueEl.textContent = Math.round(waveZoom * 100) + '%';
+  resizeCanvas();
+}
+zoomInBtn.addEventListener('click', () => setWaveZoom(waveZoom * 1.6));
+zoomOutBtn.addEventListener('click', () => setWaveZoom(waveZoom / 1.6));
+zoomResetBtn.addEventListener('click', () => { setWaveZoom(1); waveScroll.scrollLeft = 0; });
+
+function timeToX(t) {
+  const dur = audioBuffer ? audioBuffer.duration : 1;
+  return (t / dur) * canvas.width;
+}
+
+function draw() {
+  waveCtx.clearRect(0, 0, canvas.width, canvas.height);
+  waveCtx.fillStyle = '#0e1014';
+  waveCtx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!audioBuffer) return;
+  const w = canvas.width, h = canvas.height, mid = h / 2;
+  if (!overviewPeaksCache) computeOverviewPeaks();
+  const peaks = overviewPeaksCache;
+  waveCtx.fillStyle = '#3a4150';
+  const barW = w / peaks.length;
+  for (let i = 0; i < peaks.length; i++) {
+    const bh = Math.max(1, peaks[i] * mid * 0.95);
+    waveCtx.fillRect(i * barW, mid - bh, Math.max(1, barW - 0.5), bh * 2);
+  }
+
+  const bpm = parseFloat(bpmInput.value) || 120;
+  const beatsPerBar = parseInt(beatsPerBarInput.value) || 4;
+  const countIn = parseInt(countInInput.value) || 0;
+  const bInterval = 60 / bpm;
+  if (startTime !== null) {
+    const firstGridTime = startTime - bInterval * countIn;
+    let beatIdx = -countIn;
+    let t = firstGridTime;
+    while (t <= audioBuffer.duration) {
+      if (t >= 0) {
+        const x = timeToX(t);
+        const isBar = ((beatIdx % beatsPerBar) + beatsPerBar) % beatsPerBar === 0;
+        waveCtx.strokeStyle = isBar ? '#e8c14a' : (beatIdx < 0 ? 'rgba(95,212,163,0.5)' : 'rgba(74,144,226,0.55)');
+        waveCtx.lineWidth = isBar ? 2 * dpr : 1 * dpr;
+        waveCtx.beginPath();
+        waveCtx.moveTo(x, 0);
+        waveCtx.lineTo(x, h);
+        waveCtx.stroke();
+      }
+      beatIdx++;
+      t += bInterval;
+    }
+    const sx = timeToX(startTime);
+    waveCtx.strokeStyle = '#ff6b6b';
+    waveCtx.lineWidth = 2.5 * dpr;
+    waveCtx.beginPath();
+    waveCtx.moveTo(sx, 0); waveCtx.lineTo(sx, h);
+    waveCtx.stroke();
+  }
+
+  const cur = getCurrentTime();
+  const px = timeToX(cur);
+  waveCtx.strokeStyle = '#ffffff';
+  waveCtx.lineWidth = 1.5 * dpr;
+  waveCtx.beginPath();
+  waveCtx.moveTo(px, 0); waveCtx.lineTo(px, h);
+  waveCtx.stroke();
+
+  if (mode === 'audio' && waveZoom > 1 && isPlaying) {
+    const pxCss = px / dpr;
+    const viewportWidth = waveScroll.clientWidth;
+    waveScroll.scrollLeft = Math.max(0, pxCss - viewportWidth / 2);
+  }
+}
+
+// ===== 재생 엔진 (오디오싱크 미리듣기 + 재생 모드 공유) =====
+function ensureGain() {
+  if (!gainNode) {
+    gainNode = audioCtx.createGain();
+    gainNode.connect(audioCtx.destination);
+  }
+  gainNode.gain.value = (+volumeInput.value || 100) / 100;
+}
+
+function playFrom(offset, source) {
+  ensureAudioCtx();
+  ensureGain();
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBuffer;
+  sourceNode.connect(gainNode);
+  // offset이 음수면(준비박 구간이 파일 시작보다 앞서야 하는 경우) 오디오 파일을
+  // 건드리지 않고, 그만큼 Web Audio 스케줄러에 재생 시작을 미뤄서 정확히 파일의
+  // 0초 지점부터 이어지게 한다 — 무음을 파일에 덧붙이는 대신 재생 타이밍만 늦춘다.
+  // 배속은 마디 재생에만 적용한다(오디오 싱크 패널의 미리듣기는 항상 원래 속도).
+  const rate = source === 'measurePlay' ? playbackRate() : 1;
+  sourceNode.playbackRate.value = rate;
+  currentRate = rate;
+  // delay는 "파일시간 -offset만큼 기다린다"를 실제 시간으로 환산한 값이다.
+  const delay = Math.max(0, -offset) / rate;
+  const bufferOffset = Math.max(0, offset);
+  sourceNode.start(audioCtx.currentTime + delay, bufferOffset);
+  playStartedAt = audioCtx.currentTime;
+  playOffset = offset;
+  isPlaying = true;
+  playbackSource = source;
+  lastFrameMeasureIdx = -1;
+  sourceNode.onended = () => { if (isPlaying) handlePlaybackNaturalEnd(); };
+  syncPlayButtonLabels();
+  if (!rafId) rafId = requestAnimationFrame(playbackFrameLoop);
+}
+
+function stopSource() {
+  if (sourceNode) { try { sourceNode.onended = null; sourceNode.stop(); } catch (e) {} }
+  isPlaying = false;
+  playbackSource = null;
+  // 예약된 rAF를 반드시 취소하고 rafId를 비운다. 안 그러면 다음 재생 때
+  // playFrom()의 `if (!rafId)` 가드가 "이미 루프 도는 중"으로 오판해서
+  // UI 루프를 다시 걸지 않고, 오디오만 재생되고 마디는 멈춰 있게 된다.
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  syncPlayButtonLabels();
+  highlightBeatIndicator(-1);
+}
+
+function getCurrentTime() {
+  if (!audioBuffer) return 0;
+  if (isPlaying) return Math.min(playOffset + (audioCtx.currentTime - playStartedAt) * currentRate, audioBuffer.duration);
+  return playOffset;
+}
+
+function handlePlaybackNaturalEnd() {
+  isPlaying = false;
+  playbackSource = null;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  syncPlayButtonLabels();
+  highlightBeatIndicator(-1);
+  if (mode === 'play') {
+    const { start0 } = getLoopBounds();
+    updateMeasureDisplay(start0);
+  }
+}
+
+function syncPlayButtonLabels() {
+  playBtn.textContent = isPlaying ? '⏸ 정지' : '▶ 재생';
+  startStopBtn.textContent = isPlaying ? '정지' : '시작';
+}
+
+function updateCurTimeDisplay() {
+  curTimeEl.textContent = getCurrentTime().toFixed(2);
+}
+
+playBtn.addEventListener('click', () => {
+  if (!audioBuffer) return;
+  if (isPlaying) {
+    playOffset = getCurrentTime();
+    stopSource();
+  } else {
+    playFrom(playOffset, 'preview');
+  }
+});
+
+canvas.addEventListener('click', e => {
+  if (!audioBuffer) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * dpr;
+  const t = (x / canvas.width) * audioBuffer.duration;
+  if (markMode) {
+    startTime = Math.max(0, t);
+    startTimeShowEl.textContent = startTime.toFixed(2);
+    onSyncParamsChanged();
+  } else {
+    playOffset = Math.max(0, Math.min(t, audioBuffer.duration));
+    if (isPlaying) { stopSource(); playFrom(playOffset, 'preview'); }
+    updateCurTimeDisplay();
+  }
+  draw();
+});
+
+markStartBtn.addEventListener('click', () => {
+  markMode = !markMode;
+  markStartBtn.classList.toggle('on', markMode);
+  markStartBtn.textContent = markMode ? '📍 시작점 지정 모드 (파형 클릭)' : '📍 클릭으로 시작점 지정';
+});
+
+setStartHereBtn.addEventListener('click', () => {
+  if (!audioBuffer) return;
+  startTime = getCurrentTime();
+  startTimeShowEl.textContent = startTime.toFixed(2);
+  onSyncParamsChanged();
+  draw();
+});
+
+function onSyncParamsChanged() {
+  peakCache.clear();
+  updatePracticeRateHint(); // 원본 BPM이 바뀌면 연습 BPM 대비 배속도 달라진다
+  saveState();
+  if (mode === 'play') renderPlayWindow();
+  draw();
+}
+
+document.getElementById('bpmMinus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 5); onSyncParamsChanged(); };
+document.getElementById('bpmMinus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value - 1); onSyncParamsChanged(); };
+document.getElementById('bpmPlus1').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 1); onSyncParamsChanged(); };
+document.getElementById('bpmPlus5').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value + 5); onSyncParamsChanged(); };
+bpmInput.onchange = () => { bpmInput.value = clampBpm(+bpmInput.value || 120); onSyncParamsChanged(); };
+beatsPerBarInput.addEventListener('input', renderBeatIndicator);
+beatsPerBarInput.onchange = onSyncParamsChanged;
+countInInput.onchange = onSyncParamsChanged;
+
+volumeInput.oninput = () => {
+  volumeValue.textContent = volumeInput.value + '%';
+  if (gainNode) gainNode.gain.value = (+volumeInput.value) / 100;
+};
+volumeInput.onchange = saveState;
+
+tapBtn.addEventListener('click', () => {
+  const now = performance.now();
+  tapTimes.push(now);
+  if (tapTimes.length > 8) tapTimes.shift();
+  if (tapTimes.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i - 1]);
+    const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const bpm = 60000 / avg;
+    bpmInput.value = bpm.toFixed(1);
+    tapHint.textContent = `탭 ${tapTimes.length}회 · 추정 BPM ${bpm.toFixed(1)}`;
+    onSyncParamsChanged();
+  }
+});
+setInterval(() => {
+  if (tapTimes.length && performance.now() - tapTimes[tapTimes.length - 1] > 2000) tapTimes = [];
+}, 500);
+
+// ===== BPM 분석값 적용 (analyze_audio.py가 써둔 audio_meta.json) =====
+// BPM 자체를 분석하는 코드는 이 파일에 두지 않는다 — 정확한 템포 추정은 librosa 같은
+// 검증된 라이브러리가 훨씬 강력해서, analyze_audio.py를 미리 터미널에서 한 번 돌려
+// audio_meta.json을 만들어두는 쪽을 택했다(PDF를 미리 pdf_to_png.py로 변환해두는
+// 것과 같은 패턴). 시작점은 여기서 자동 적용하지 않는다 — 준비박 유무 등으로 자동
+// 추정이 한두 박씩 어긋나기 쉬워서, BPM만 자동으로 맞추고 시작점은 파형을 직접
+// 클릭해 지정하는 쪽이 더 정확하고 간단하다.
+applyAnalyzedBtn.addEventListener('click', () => {
+  if (!detectedMeta) return;
+  bpmInput.value = detectedMeta.bpm;
+  onSyncParamsChanged();
+  analyzedHint.textContent = `분석값 적용됨: BPM ${detectedMeta.bpm}. 시작점은 파형을 클릭해 직접 지정하세요.`;
+});
+
+document.getElementById('bpmHalveBtn').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value / 2); onSyncParamsChanged(); };
+document.getElementById('bpmDoubleBtn').onclick = () => { bpmInput.value = clampBpm(+bpmInput.value * 2); onSyncParamsChanged(); };
+
+function renderBeatIndicator() {
+  const n = +beatsPerBarInput.value || 4;
+  beatIndicatorEl.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('span');
+    b.className = 'beatBox';
+    b.textContent = i + 1;
+    beatIndicatorEl.appendChild(b);
+  }
+}
+function highlightBeatIndicator(i) {
+  Array.from(beatIndicatorEl.children).forEach((b, k) => b.classList.toggle('current', k === i));
+}
+
+// ===== 마디 지정 (탭 주석) =====
+function onLinesChanged() {
+  computeMeasures();
+  updateLineCount();
+  updateModeAvailability();
+  saveState();
+}
+
+function getHandles(box) {
+  return {
+    tl: { x: box.x, y: box.y },
+    tr: { x: box.x + box.w, y: box.y },
+    bl: { x: box.x, y: box.y + box.h },
+    br: { x: box.x + box.w, y: box.y + box.h }
+  };
+}
+function hitHandle(box, mx, my) {
+  const handles = getHandles(box);
+  for (const name in handles) {
+    const pt = handles[name];
+    if (Math.hypot(mx - pt.x, my - pt.y) <= HANDLE_R + 3) return name;
+  }
+  return null;
+}
+
+function renderAnnotatePage(pageNum) {
+  const img = pageImagesByNum.get(pageNum);
+  annotateScale = ANNOTATE_CANVAS_WIDTH / img.naturalWidth;
+  annotateCanvas.width = ANNOTATE_CANVAS_WIDTH;
+  annotateCanvas.height = img.naturalHeight * annotateScale;
+  const ctx = annotateCanvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, annotateCanvas.width, annotateCanvas.height);
+  const idx = pageNumbers.indexOf(pageNum);
+  pageInfo.textContent = `페이지 ${idx + 1}/${pageNumbers.length}`;
+  drawAnnotateOverlays();
+}
+
+function drawLineBox(ctx, line, idx, isSelected, baseColor, baseFill, label) {
+  const x = line.box.x * annotateScale, y = line.box.y * annotateScale;
+  const w = line.box.w * annotateScale, h = line.box.h * annotateScale;
+  ctx.strokeStyle = isSelected ? 'orange' : baseColor;
+  ctx.lineWidth = isSelected ? 3 : 2;
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.strokeStyle = isSelected ? 'orange' : baseColor;
+  ctx.lineWidth = 1;
+  for (let i = 1; i < line.barX.length - 1; i++) {
+    const bx = line.barX[i] * annotateScale;
+    ctx.beginPath();
+    ctx.moveTo(bx, y);
+    ctx.lineTo(bx, y + h);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = isSelected ? 'rgba(230,140,0,0.7)' : baseFill;
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`${label}${idx + 1} (${line.barX.length - 1}마디)`, x + 2, y - 4 < 10 ? y + 12 : y - 4);
+}
+
+function drawAnnotateOverlays() {
+  const ctx = annotateCanvas.getContext('2d');
+  lines.forEach((line, idx) => {
+    if (line.page !== currentAnnotatePage) return;
+    const isSelected = selectedLineSource === 'confirmed' && idx === selectedLineIdx;
+    drawLineBox(ctx, line, idx, isSelected, 'green', 'rgba(0,150,0,0.5)', '#');
+  });
+
+  pageLines.forEach((line, idx) => {
+    const isSelected = selectedLineSource === 'draft' && idx === selectedLineIdx;
+    drawLineBox(ctx, line, idx, isSelected, 'purple', 'rgba(140,0,150,0.6)', '초안#');
+  });
+
+  if (pendingBox) {
+    ctx.strokeStyle = 'blue';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(pendingBox.x, pendingBox.y, pendingBox.w, pendingBox.h);
+    ctx.setLineDash([]);
+    pendingBarX.forEach((x, i) => {
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, pendingBox.y);
+      ctx.lineTo(x, pendingBox.y + pendingBox.h);
+      ctx.stroke();
+      ctx.fillStyle = 'red';
+      ctx.fillText(String(i + 1), x + 2, pendingBox.y - 4 < 10 ? pendingBox.y + 12 : pendingBox.y - 4);
+    });
+    ctx.fillStyle = 'blue';
+    Object.values(getHandles(pendingBox)).forEach(pt => {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, HANDLE_R, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
+
+annotateCanvas.onmousedown = (e) => {
+  if (pendingBox) {
+    const h = hitHandle(pendingBox, e.offsetX, e.offsetY);
+    if (h) {
+      resizeHandle = h;
+      dragStart = null;
+      return;
+    }
+  }
+  dragStart = { x: e.offsetX, y: e.offsetY };
+};
+
+annotateCanvas.onmousemove = (e) => {
+  if (!resizeHandle || !pendingBox) return;
+  const mx = e.offsetX, my = e.offsetY;
+  let x = pendingBox.x, y = pendingBox.y;
+  let x2 = pendingBox.x + pendingBox.w, y2 = pendingBox.y + pendingBox.h;
+  if (resizeHandle === 'tl') { x = mx; y = my; }
+  else if (resizeHandle === 'tr') { x2 = mx; y = my; }
+  else if (resizeHandle === 'bl') { x = mx; y2 = my; }
+  else if (resizeHandle === 'br') { x2 = mx; y2 = my; }
+  pendingBox = {
+    x: Math.min(x, x2),
+    y: Math.min(y, y2),
+    w: Math.abs(x2 - x),
+    h: Math.abs(y2 - y)
+  };
+  drawAnnotateOverlaysFresh();
+};
+
+annotateCanvas.onmouseleave = () => {
+  resizeHandle = null;
+  dragStart = null;
+};
+
+function pointInPendingBox(px, py) {
+  if (!pendingBox) return false;
+  return px >= pendingBox.x && px <= pendingBox.x + pendingBox.w &&
+         py >= pendingBox.y && py <= pendingBox.y + pendingBox.h;
+}
+
+annotateCanvas.onmouseup = (e) => {
+  if (resizeHandle) {
+    resizeHandle = null;
+    return;
+  }
+  if (!dragStart) return;
+  const dx = e.offsetX - dragStart.x, dy = e.offsetY - dragStart.y;
+  const moved = Math.max(Math.abs(dx), Math.abs(dy));
+
+  if (moved < 6) {
+    if (pendingBox) {
+      handleAnnotateClick(e.offsetX);
+    } else {
+      selectLineAt(e.offsetX, e.offsetY);
+    }
+  } else if (!pendingBox || !pointInPendingBox(dragStart.x, dragStart.y)) {
+    if (pendingBox) addPendingAsDraft();
+    pendingBox = {
+      x: Math.min(dragStart.x, e.offsetX),
+      y: Math.min(dragStart.y, e.offsetY),
+      w: Math.abs(dx),
+      h: Math.abs(dy)
+    };
+    pendingBarX = [];
+    selectedLineIdx = null;
+    selectedLineSource = null;
+    drawAnnotateOverlaysFresh();
+  }
+  dragStart = null;
+};
+
+function drawAnnotateOverlaysFresh() {
+  renderAnnotatePage(currentAnnotatePage);
+}
+
+function handleAnnotateClick(x) {
+  if (!pendingBox) return;
+  const nearIdx = pendingBarX.findIndex(px => Math.abs(px - x) < 8);
+  if (nearIdx >= 0) {
+    pendingBarX.splice(nearIdx, 1);
+  } else {
+    pendingBarX.push(x);
+  }
+  drawAnnotateOverlaysFresh();
+}
+
+function boxHit(line, mx, my) {
+  const x = line.box.x * annotateScale, y = line.box.y * annotateScale;
+  const w = line.box.w * annotateScale, h = line.box.h * annotateScale;
+  return mx >= x && mx <= x + w && my >= y && my <= y + h;
+}
+
+function selectLineAt(mx, my) {
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  lines.forEach((line, idx) => {
+    if (line.page !== currentAnnotatePage) return;
+    if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'confirmed'; }
+  });
+  pageLines.forEach((line, idx) => {
+    if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'draft'; }
+  });
+  drawAnnotateOverlaysFresh();
+}
+
+document.getElementById('cancelBoxBtn').onclick = () => {
+  if (pendingBox) {
+    pendingBox = null;
+    pendingBarX = [];
+    drawAnnotateOverlaysFresh();
+  } else if (selectedLineIdx !== null) {
+    deleteSelectedLine();
+  }
+};
+
+document.getElementById('undoPointBtn').onclick = () => {
+  pendingBarX.pop();
+  drawAnnotateOverlaysFresh();
+};
+
+function addPendingAsDraft() {
+  if (!pendingBox) return false;
+  const fullBarX = [pendingBox.x, pendingBox.x + pendingBox.w, ...pendingBarX].sort((a, b) => a - b);
+  pageLines.push({
+    page: currentAnnotatePage,
+    box: {
+      x: pendingBox.x / annotateScale,
+      y: pendingBox.y / annotateScale,
+      w: pendingBox.w / annotateScale,
+      h: pendingBox.h / annotateScale
+    },
+    barX: fullBarX.map(x => x / annotateScale)
+  });
+  pendingBox = null;
+  pendingBarX = [];
+  updateLineCount();
+  return true;
+}
+
+document.getElementById('undoLastDraftBtn').onclick = () => {
+  pageLines.pop();
+  if (selectedLineSource === 'draft') { selectedLineIdx = null; selectedLineSource = null; }
+  updateLineCount();
+  drawAnnotateOverlaysFresh();
+};
+
+document.getElementById('confirmPageBtn').onclick = () => {
+  addPendingAsDraft();
+  if (pageLines.length === 0) {
+    alert('확정할 줄이 없습니다. 먼저 드래그로 줄을 그려주세요.');
+    return;
+  }
+  lines.push(...pageLines);
+  pageLines = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  onLinesChanged();
+  drawAnnotateOverlaysFresh();
+};
+
+document.getElementById('resetAllBtn').onclick = () => {
+  if (!confirm('전체 마디 지정을 초기화할까요?')) return;
+  lines = [];
+  pageLines = [];
+  pendingBox = null;
+  pendingBarX = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  onLinesChanged();
+  drawAnnotateOverlaysFresh();
+};
+
+function goToPage(newPage) {
+  if (pageLines.length > 0 && !confirm('확정하지 않은 초안 줄이 있습니다. 페이지를 이동하면 사라집니다. 계속할까요?')) return;
+  currentAnnotatePage = newPage;
+  pendingBox = null;
+  pendingBarX = [];
+  pageLines = [];
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  updateLineCount();
+  renderAnnotatePage(currentAnnotatePage);
+}
+
+document.getElementById('prevPage').onclick = () => {
+  const idx = pageNumbers.indexOf(currentAnnotatePage);
+  if (idx <= 0) return;
+  goToPage(pageNumbers[idx - 1]);
+};
+document.getElementById('nextPage').onclick = () => {
+  const idx = pageNumbers.indexOf(currentAnnotatePage);
+  if (idx < 0 || idx >= pageNumbers.length - 1) return;
+  goToPage(pageNumbers[idx + 1]);
+};
+
+function deleteSelectedLine() {
+  if (selectedLineIdx === null) return;
+  if (selectedLineSource === 'confirmed') {
+    lines.splice(selectedLineIdx, 1);
+    onLinesChanged();
+  } else if (selectedLineSource === 'draft') {
+    pageLines.splice(selectedLineIdx, 1);
+    updateLineCount();
+  }
+  selectedLineIdx = null;
+  selectedLineSource = null;
+  drawAnnotateOverlaysFresh();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Backspace') return;
+  if (mode !== 'annotate' || selectedLineIdx === null) return;
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  e.preventDefault();
+  deleteSelectedLine();
+});
+
+// ===== 재생 (탭 + 마디별 파형) =====
+function computeMeasures() {
+  measures = [];
+  measuresByLine = new Map();
+  lines.forEach((line, li) => {
+    for (let i = 0; i < line.barX.length - 1; i++) {
+      const gi = measures.length;
+      const m = { lineIndex: li, x0: line.barX[i], x1: line.barX[i + 1], globalIdx: gi };
+      measures.push(m);
+      if (!measuresByLine.has(li)) measuresByLine.set(li, []);
+      measuresByLine.get(li).push(m);
+    }
+  });
+  peakCache.clear();
+}
+
+function getMeasurePeaks(gi) {
+  if (peakCache.has(gi)) return peakCache.get(gi);
+  const tStart = measureStartTime(gi), tEnd = tStart + measureDuration();
+  const peaks = audioBuffer ? getPeaksForRange(audioBuffer, tStart, tEnd, PEAKS_PER_MEASURE) : new Float32Array(PEAKS_PER_MEASURE);
+  peakCache.set(gi, peaks);
+  return peaks;
+}
+
+function computeLineInfos(startLine, count) {
+  const windowLines = lines.slice(startLine, startLine + count);
+  let y = 0;
+  const infos = [];
+  windowLines.forEach((line, idx) => {
+    const globalLineIdx = startLine + idx;
+    const scaleFactor = playCanvasWidth / line.box.w;
+    const dh = line.box.h * scaleFactor;
+    const imgY = y;
+    const waveY = imgY + dh + 4;
+    infos.push({ line, globalLineIdx, y: imgY, dh, scaleFactor, waveY, waveH: WAVE_BAND_HEIGHT });
+    y = waveY + WAVE_BAND_HEIGHT + LINE_GAP;
+  });
+  let totalHeight = Math.max(1, y - LINE_GAP);
+  const missing = count - windowLines.length;
+  if (missing > 0 && windowLines.length > 0) {
+    const lastLine = windowLines[windowLines.length - 1];
+    const lastDh = lastLine.box.h * (playCanvasWidth / lastLine.box.w);
+    totalHeight += missing * (lastDh + 4 + WAVE_BAND_HEIGHT + LINE_GAP);
+  }
+  return { infos, totalHeight };
+}
+
+function drawWaveBandForLine(ctx, info) {
+  const lineMeasures = measuresByLine.get(info.globalLineIdx) || [];
+  ctx.fillStyle = '#0e1014';
+  ctx.fillRect(0, info.waveY, playCanvasWidth, info.waveH);
+  const mid = info.waveY + info.waveH / 2;
+  ctx.strokeStyle = '#2a2e38';
+  lineMeasures.forEach(m => {
+    const localX0 = (m.x0 - info.line.box.x) * info.scaleFactor;
+    const localX1 = (m.x1 - info.line.box.x) * info.scaleFactor;
+    const w = Math.max(1, localX1 - localX0);
+    const peaks = getMeasurePeaks(m.globalIdx);
+    const barW = w / peaks.length;
+    ctx.fillStyle = '#5b7fb5';
+    for (let i = 0; i < peaks.length; i++) {
+      const bh = Math.max(0.5, peaks[i] * (info.waveH / 2) * 0.9);
+      ctx.fillRect(localX0 + i * barW, mid - bh, Math.max(1, barW - 0.3), bh * 2);
+    }
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(localX0, info.waveY);
+    ctx.lineTo(localX0, info.waveY + info.waveH);
+    ctx.stroke();
+  });
+  if (lineMeasures.length) {
+    const last = lineMeasures[lineMeasures.length - 1];
+    const xEnd = (last.x1 - info.line.box.x) * info.scaleFactor;
+    ctx.beginPath();
+    ctx.moveTo(xEnd, info.waveY);
+    ctx.lineTo(xEnd, info.waveY + info.waveH);
+    ctx.stroke();
+  }
+}
+
+function drawLineInfosToCanvas(ctx, infos) {
+  infos.forEach(info => {
+    const img = pageImagesByNum.get(info.line.page);
+    ctx.drawImage(
+      img,
+      info.line.box.x, info.line.box.y, info.line.box.w, info.line.box.h,
+      0, info.y, playCanvasWidth, info.dh
+    );
+    drawWaveBandForLine(ctx, info);
+  });
+}
+
+function measureAtPoint(mx, my) {
+  for (let k = 0; k < lastDrawInfos.length; k++) {
+    const info = lastDrawInfos[k];
+    if (my < info.y || my > info.waveY + info.waveH) continue;
+    const lineMeasures = measuresByLine.get(info.globalLineIdx) || [];
+    for (const m of lineMeasures) {
+      const localX0 = (m.x0 - info.line.box.x) * info.scaleFactor;
+      const localX1 = (m.x1 - info.line.box.x) * info.scaleFactor;
+      if (mx >= localX0 && mx <= localX1) return m.globalIdx;
+    }
+  }
+  return null;
+}
+
+function animateLineSlide(oldStart, newStart) {
+  return new Promise(resolve => {
+    const span = newStart - oldStart + 3;
+    const { infos, totalHeight } = computeLineInfos(oldStart, span);
+    const targetIdx = newStart - oldStart;
+    if (infos.length === 0 || !infos[targetIdx]) { resolve(); return; }
+
+    const strip = document.createElement('canvas');
+    strip.width = playCanvasWidth;
+    strip.height = totalHeight;
+    drawLineInfosToCanvas(strip.getContext('2d'), infos);
+
+    const slideDistance = infos[targetIdx].y;
+    const viewportHeight = playCanvas.height;
+    const ctx = playCanvas.getContext('2d');
+    const duration = 320;
+    const t0 = performance.now();
+
+    // 애니메이션이 도는 동안에는 재생 루프가 매 프레임 renderPlayWindow()로
+    // 같은 캔버스를 덮어써서 슬라이드가 보이지 않으므로, 그동안 그리기를 막는다.
+    slideAnimating = true;
+
+    function frame(now) {
+      const t = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const offset = eased * slideDistance;
+      ctx.clearRect(0, 0, playCanvas.width, playCanvas.height);
+      ctx.drawImage(strip, 0, offset, strip.width, viewportHeight, 0, 0, strip.width, viewportHeight);
+      if (t < 1) requestAnimationFrame(frame);
+      else { slideAnimating = false; resolve(); }
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+function renderPlayWindow() {
+  if (lines.length === 0 || slideAnimating) return;
+  const { infos: drawInfos, totalHeight } = computeLineInfos(windowStartLine, 3);
+  lastDrawInfos = drawInfos;
+  const ctx = playCanvas.getContext('2d');
+  playCanvas.width = playCanvasWidth;
+  playCanvas.height = totalHeight;
+  ctx.clearRect(0, 0, playCanvas.width, playCanvas.height);
+  drawLineInfosToCanvas(ctx, drawInfos);
+
+  const cm = measures[displayMeasureIdx];
+  if (cm) {
+    const relIdx = cm.lineIndex - windowStartLine;
+    if (relIdx >= 0 && relIdx < drawInfos.length) {
+      const info = drawInfos[relIdx];
+      const localX0 = (cm.x0 - info.line.box.x) * info.scaleFactor;
+      const localX1 = (cm.x1 - info.line.box.x) * info.scaleFactor;
+      const hw = localX1 - localX0;
+      ctx.fillStyle = 'rgba(154, 230, 100, 0.15)';
+      ctx.fillRect(localX0, info.y, hw, info.dh);
+      ctx.fillRect(localX0, info.waveY, hw, info.waveH);
+
+      if (isPlaying && playbackSource === 'measurePlay') {
+        const t = getCurrentTime();
+        const tStart = measureStartTime(displayMeasureIdx);
+        const frac = Math.min(1, Math.max(0, (t - tStart) / measureDuration()));
+        const px = localX0 + frac * hw;
+        ctx.strokeStyle = '#ff3b3b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px, info.y);
+        ctx.lineTo(px, info.waveY + info.waveH);
+        ctx.stroke();
+      }
+    }
+  }
+  measureLabelEl.textContent = '마디';
+  measureJumpInput.disabled = false;
+  measureJumpInput.max = measures.length;
+  if (document.activeElement !== measureJumpInput) {
+    measureJumpInput.value = displayMeasureIdx + 1;
+  }
+  measureTotalEl.textContent = measures.length;
+}
+
+function updateMeasureDisplay(idx) {
+  displayMeasureIdx = idx;
+  const line = measures[idx] ? measures[idx].lineIndex : currentLineIndex;
+  currentLineIndex = line;
+  const oldWindowStartLine = windowStartLine;
+  if (line < windowStartLine || line >= windowStartLine + 2) {
+    windowStartLine = line;
+  }
+  if (isPlaying && !slideAnimating && windowStartLine === oldWindowStartLine + 2) {
+    animateLineSlide(oldWindowStartLine, windowStartLine).then(renderPlayWindow);
+  } else {
+    renderPlayWindow();
+  }
+}
+
+function jumpToTypedMeasure() {
+  if (measures.length === 0) return;
+  let n = parseInt(measureJumpInput.value, 10);
+  if (isNaN(n)) n = displayMeasureIdx + 1;
+  n = Math.min(measures.length, Math.max(1, n));
+  measureJumpInput.value = n;
+  if (isPlaying) stopMeasurePlayback();
+  updateMeasureDisplay(n - 1);
+}
+measureJumpInput.addEventListener('change', jumpToTypedMeasure);
+measureJumpInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    jumpToTypedMeasure();
+    measureJumpInput.blur();
+  }
+});
+
+playCanvas.onclick = (e) => {
+  const idx = measureAtPoint(e.offsetX, e.offsetY);
+  if (idx === null) return;
+  if (isPlaying) stopMeasurePlayback();
+  updateMeasureDisplay(idx);
+};
+
+for (const key of RANGE_KEYS) {
+  document.querySelector(`[data-set-start="${key}"]`).onclick = () => {
+    rangeInputs[key].start.value = displayMeasureIdx + 1;
+    saveState();
+  };
+  document.querySelector(`[data-set-end="${key}"]`).onclick = () => {
+    rangeInputs[key].end.value = displayMeasureIdx + 1;
+    saveState();
+  };
+  rangeInputs[key].start.addEventListener('change', saveState);
+  rangeInputs[key].end.addEventListener('change', saveState);
+}
+for (const radio of playModeRadios) {
+  radio.addEventListener('change', () => {
+    saveState();
+    if (!isPlaying && measures.length > 0) {
+      const { start0 } = getLoopBounds();
+      updateMeasureDisplay(start0);
+    }
+  });
+}
+
+function updatePracticeRateHint() {
+  const pct = Math.round(playbackRate() * 100);
+  practiceRateHint.textContent = pct === 100
+    ? `원래 속도 (오디오 ${+bpmInput.value || 120} BPM)`
+    : `원래 속도의 ${pct}% · 느리게/빠르게 하면 음정도 함께 변합니다`;
+}
+
+function onPracticeBpmChanged() {
+  practiceBpmInput.value = clampBpm(+practiceBpmInput.value || (+bpmInput.value || 120));
+  updatePracticeRateHint();
+  saveState();
+  // 재생 중이면 새 배속으로 지금 마디부터 다시 시작한다. 준비박 대기 중에는
+  // 이미 예약된 시작 시각이 옛 배속 기준이라, 다시 거는 쪽이 항상 정확하다.
+  if (isPlaying && playbackSource === 'measurePlay') {
+    stopMeasurePlayback();
+    startMeasurePlayback();
+  }
+}
+practiceBpmInput.addEventListener('change', onPracticeBpmChanged);
+document.getElementById('practiceBpmMinus5').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() - 5); onPracticeBpmChanged(); };
+document.getElementById('practiceBpmMinus1').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() - 1); onPracticeBpmChanged(); };
+document.getElementById('practiceBpmPlus1').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() + 1); onPracticeBpmChanged(); };
+document.getElementById('practiceBpmPlus5').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() + 5); onPracticeBpmChanged(); };
+document.getElementById('practiceBpmResetBtn').onclick = () => { practiceBpmInput.value = +bpmInput.value || 120; onPracticeBpmChanged(); };
+loopEnabledInput.addEventListener('change', saveState);
+
+// ===== 마디 기반 재생 시작/정지 + rAF 루프 =====
+function startMeasurePlayback() {
+  if (!audioBuffer || measures.length === 0) return;
+  const { start0, end0 } = getLoopBounds();
+  const target = Math.min(end0, Math.max(start0, displayMeasureIdx));
+  let offset = measureStartTime(target);
+  if (getPlayMode() === 'all' && target === 0) offset = countInStartTime();
+  playFrom(offset, 'measurePlay');
+}
+function stopMeasurePlayback() {
+  stopSource();
+  // 준비박 도중에 멈추면 "준비" 라벨과 비활성화된 마디 입력칸이 그대로 남으므로
+  // 다시 그려서 평상시 표시로 되돌린다.
+  if (mode === 'play') renderPlayWindow();
+}
+startStopBtn.onclick = () => { isPlaying ? stopMeasurePlayback() : startMeasurePlayback(); };
+
+function playbackFrameLoop() {
+  rafId = null; // 이 프레임은 이미 소비됐다 — 아래에서 필요할 때만 다시 예약한다.
+  if (!isPlaying) return;
+  const t = getCurrentTime();
+  updateCurTimeDisplay();
+  if (mode === 'audio') draw();
+
+  if (playbackSource === 'measurePlay') {
+    const state = computePlaybackState(t);
+    if (state.phase === 'preroll') {
+      measureLabelEl.textContent = '준비';
+      measureJumpInput.disabled = true;
+      measureJumpInput.value = state.prerollBeatIdx + 1;
+      measureTotalEl.textContent = +countInInput.value || 0;
+      highlightBeatIndicator(-1);
+    } else if (state.phase === 'playing') {
+      highlightBeatIndicator(state.beatInMeasure);
+      const { start0, end0 } = getLoopBounds();
+      if (state.globalMeasureIdx > end0) {
+        if (loopEnabledInput.checked) {
+          stopSource();
+          playFrom(measureStartTime(start0), 'measurePlay');
+        } else {
+          stopSource();
+          updateMeasureDisplay(start0);
+        }
+      } else if (state.globalMeasureIdx !== lastFrameMeasureIdx) {
+        lastFrameMeasureIdx = state.globalMeasureIdx;
+        updateMeasureDisplay(state.globalMeasureIdx);
+      } else {
+        renderPlayWindow();
+      }
+    } else if (state.phase === 'ended') {
+      stopSource();
+      const { start0 } = getLoopBounds();
+      updateMeasureDisplay(start0);
+    }
+  }
+  // 구간 반복으로 playFrom()이 이미 다음 프레임을 예약했을 수 있으니 중복 예약을 피한다.
+  if (isPlaying && !rafId) rafId = requestAnimationFrame(playbackFrameLoop);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  const el = document.activeElement;
+  if (el.tagName === 'SELECT' || el.tagName === 'BUTTON') return;
+  if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'checkbox' || el.type === 'radio')) return;
+  if (mode !== 'play') return;
+  e.preventDefault();
+  isPlaying ? stopMeasurePlayback() : startMeasurePlayback();
+});
+
+resetToStartBtn.onclick = () => {
+  if (isPlaying) stopMeasurePlayback();
+  currentLineIndex = 0;
+  windowStartLine = 0;
+  updateMeasureDisplay(0);
+};
+
+// ===== 전체화면 연습 모드 =====
+// 나머지 UI 숨김은 CSS(body.practice-mode 규칙)가 전담하고, 여기서는
+// body 클래스 토글 + 전체화면 API + 캔버스 폭 재계산만 담당한다.
+function updatePlayCanvasWidth() {
+  playCanvasWidth = practiceMode ? Math.max(320, Math.min(window.innerWidth - 24, 2000)) : 760;
+  if (mode === 'play') renderPlayWindow();
+}
+function enterPracticeFullscreen() {
+  if (lines.length === 0 || !audioBuffer) return;
+  practiceMode = true;
+  document.body.classList.add('practice-mode');
+  exitPracticeBtn.classList.remove('hidden');
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+  updatePlayCanvasWidth();
+}
+function exitPracticeFullscreen() {
+  practiceMode = false;
+  document.body.classList.remove('practice-mode');
+  exitPracticeBtn.classList.add('hidden');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  updatePlayCanvasWidth();
+}
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && practiceMode) exitPracticeFullscreen();
+});
+window.addEventListener('resize', () => { if (practiceMode) updatePlayCanvasWidth(); });
+fullscreenBtn.onclick = enterPracticeFullscreen;
+exitPracticeBtn.onclick = exitPracticeFullscreen;
+
+// ===== 모드 전환 =====
+modeAudioBtn.onclick = () => setMode('audio');
+modeAnnotateBtn.onclick = () => setMode('annotate');
+modePlayBtn.onclick = () => setMode('play');
+
+function setMode(m) {
+  if (m === 'play' && (lines.length === 0 || !audioBuffer)) {
+    alert(lines.length === 0
+      ? '먼저 마디 지정 모드에서 마디를 지정해주세요.'
+      : `오디오 파일이 없어 재생할 수 없습니다. scores/${songName || '곡이름'}/ 폴더에 오디오 파일을 넣고 폴더를 다시 불러오세요.`);
+    return;
+  }
+  mode = m;
+  modeAudioBtn.classList.toggle('active', m === 'audio');
+  modeAnnotateBtn.classList.toggle('active', m === 'annotate');
+  modePlayBtn.classList.toggle('active', m === 'play');
+  audioSyncPanel.classList.toggle('hidden', m !== 'audio');
+  annotatePanel.classList.toggle('hidden', m !== 'annotate');
+  playPanel.classList.toggle('hidden', m !== 'play');
+  if (m === 'audio') resizeCanvas();
+  if (m === 'annotate' && pageImagesByNum.has(currentAnnotatePage)) renderAnnotatePage(currentAnnotatePage);
+  if (m === 'play') {
+    computeMeasures();
+    currentLineIndex = 0;
+    windowStartLine = 0;
+    displayMeasureIdx = 0;
+    if (!(+practiceBpmInput.value > 0)) practiceBpmInput.value = +bpmInput.value || 120;
+    updatePracticeRateHint();
+    for (const key of RANGE_KEYS) {
+      const { start, end } = rangeInputs[key];
+      start.max = measures.length;
+      end.max = measures.length;
+      if (!end.value || +end.value > measures.length) end.value = measures.length;
+    }
+    renderPlayWindow();
+  }
+}
+
+// ===== 초기화 =====
+renderBeatIndicator();
+updateModeAvailability();
+practiceBpmInput.value = +bpmInput.value || 120;
+updatePracticeRateHint();
+setMode('annotate');
+</script>
+
+</body>
+</html>

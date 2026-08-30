@@ -1189,9 +1189,8 @@ function setMode(m) {
 
 document.getElementById('resetToStart').onclick = () => {
   if (isPlaying) stopPlayback();
-  currentLineIndex = 0;
-  windowStartLine = 0;
-  updateMeasureDisplay(0);
+  const { start0 } = getLoopBounds();
+  updateMeasureDisplay(start0);
 };
 
 let audioCtx = null;
