@@ -42,5 +42,7 @@ score-player.html의 마디 지정/재생과 배킹트랙(실제 음원) 재생�
 ### 참고
 
 - `pdf_to_png.py`/`pdf_to_png_gui.py`는 `.venv`(pymupdf, `requirements.txt`)가 필요하다. GUI는 tkinter를 쓰는데, Homebrew python은 기본적으로 `_tkinter`가 빠져 있어서 `brew install python-tk@<버전>`이 별도로 필요하다.
-- `analyze_audio.py`/`stretch_audio.py`도 같은 `.venv`/`requirements.txt`를 쓴다(librosa, numpy/scipy/numba 등이 딸려와서 첫 설치가 좀 걸린다). `stretch_audio.py`의 기본값은 50~95%를 5% 단위로(10개) 만드는 것이라 무압축 WAV가 원본의 약 10배 용량이 된다(곡 하나에 수백 MB). `scores/`는 git에 안 올라가므로 그대로 두되, 용량이 부담되면 필요한 속도만 인자로 넘기면 된다.
+- `analyze_audio.py`/`stretch_audio.py`도 같은 `.venv`/`requirements.txt`를 쓴다(librosa, numpy/scipy/numba 등이 딸려와서 첫 설치가 좀 걸린다).
+- **`stretch_audio.py`의 사본은 원본과 같은 포맷으로 저장한다.** 처음엔 전부 WAV로 뽑았는데, 원본이 mp3인 경우가 대부분이라 사본 하나가 원본의 10배가 넘어 감당이 안 됐다. 지금은 확장자를 보고 libsndfile이 인코딩할 수 있는 포맷(wav/mp3/flac/ogg/aiff)이면 그대로 쓰고, m4a·aac처럼 인코딩을 지원하지 않는 포맷만 mp3로 대신 저장한다. 기본 10개를 만들면 사본이 원본보다 길어지는 만큼(50%면 두 배) 합계는 원본 파일의 약 15배가 된다. `scores/`는 git에 안 올라가므로 그대로 두되, 부담되면 필요한 속도만 인자로 넘기면 된다.
+  - 여기서 쓰는 확장자 목록은 HTML의 `AUDIO_EXT_RE`/`SPEED_FILE_RE`와 맞춰야 한다 — 한쪽에만 추가하면 파이썬이 만든 파일을 앱이 못 읽는다.
 - `scores/`는 저작권이 있는 악보 이미지가 생기는 폴더라 git에 포함하지 않는다(`.gitignore`).

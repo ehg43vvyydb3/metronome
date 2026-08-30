@@ -397,11 +397,11 @@ let lastFrameMeasureIdx = -1;
 let dpr = window.devicePixelRatio || 1;
 let detectedMeta = null; // analyze_audio.py가 써둔 audio_meta.json 내용(있으면)
 
-const AUDIO_EXT_RE = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+const AUDIO_EXT_RE = /\.(mp3|wav|m4a|ogg|flac|aac|aiff|aif)$/i;
 const PNG_NAME_RE = /^page-\d+\.png$/i;
 const META_FILE_RE = /^audio_meta\.json$/i;
 // stretch_audio.py가 만든 느린 버전. 메인 오디오 후보에서는 빼고 따로 모은다.
-const SPEED_FILE_RE = /^speed-(\d+)\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+const SPEED_FILE_RE = /^speed-(\d+)\.(mp3|wav|m4a|ogg|flac|aac|aiff|aif)$/i;
 
 // ===== DOM =====
 const folderBtn = document.getElementById('folderBtn');

@@ -14,6 +14,27 @@ OUT_PREFIX = "speed-"
 # 속도를 안 주면 만드는 기본 목록: 50~95%를 5% 단위로.
 DEFAULT_PERCENTS = list(range(50, 100, 5))
 
+# 사본은 원본과 같은 포맷으로 저장한다. 원본이 mp3인데 WAV로 뽑으면
+# 사본 하나가 원본의 10배가 넘어서(10개면 수백 MB) 감당이 안 된다.
+# libsndfile이 인코딩할 수 있는 포맷만 여기 있고, m4a/aac는 지원하지 않아
+# 브라우저가 항상 읽을 수 있는 mp3로 대신 저장한다.
+WRITABLE_FORMATS = {
+    ".wav": "WAV",
+    ".mp3": "MP3",
+    ".flac": "FLAC",
+    ".ogg": "OGG",
+    ".aiff": "AIFF",
+    ".aif": "AIFF",
+}
+FALLBACK_EXT, FALLBACK_FORMAT = ".mp3", "MP3"
+
+
+def output_format(audio_path):
+    ext = os.path.splitext(audio_path)[1].lower()
+    if ext in WRITABLE_FORMATS:
+        return ext, WRITABLE_FORMATS[ext]
+    return FALLBACK_EXT, FALLBACK_FORMAT
+
 
 def stretch(path, percents):
     if os.path.isdir(path):
@@ -28,6 +49,9 @@ def stretch(path, percents):
 
     # mono=False로 원본 채널 수를 유지한다(스테레오면 (채널, 샘플) 모양).
     y, sr = librosa.load(audio_path, sr=None, mono=False)
+    ext, fmt = output_format(audio_path)
+    if ext != os.path.splitext(audio_path)[1].lower():
+        print(f"※ {os.path.splitext(audio_path)[1]}는 인코딩을 지원하지 않아 {ext}로 저장합니다.")
 
     out_paths = []
     for pct in percents:
@@ -39,8 +63,8 @@ def stretch(path, percents):
         stretched = librosa.effects.time_stretch(y, rate=rate)
         # soundfile은 (샘플, 채널) 모양을 기대하므로 스테레오면 전치한다.
         data = stretched.T if stretched.ndim > 1 else stretched
-        out_path = os.path.join(folder, f"{OUT_PREFIX}{pct}.wav")
-        sf.write(out_path, data, sr)
+        out_path = os.path.join(folder, f"{OUT_PREFIX}{pct}{ext}")
+        sf.write(out_path, data, sr, format=fmt)
         out_paths.append(out_path)
     return out_paths
 

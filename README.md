@@ -95,7 +95,7 @@ python3 stretch_audio.py "scores/song/"           # 50–95% in 5% steps (10 fil
 python3 stretch_audio.py "scores/song/" 60 75     # or pick your own
 ```
 
-It writes `scores/song/speed-70.wav` etc. next to the original; the editor picks them up on the next folder load and turns them into practice-speed buttons. They're uncompressed WAV, so the full default set runs roughly 10× the size of a WAV of the original — several hundred MB for a full-length song. Pass a few speeds explicitly if that's too much; `scores/` isn't in git either way.
+It writes `scores/song/speed-70.mp3` etc. next to the original; the editor picks them up on the next folder load and turns them into practice-speed buttons. **Copies keep the original's format**, so an MP3 source stays MP3 rather than ballooning into WAV. (M4A/AAC can't be encoded by libsndfile, so those fall back to MP3.) The copies are longer than the original — a 50% copy runs twice as long — so the full default set lands around 15× the original file's size.
 
 ---
 
@@ -188,4 +188,4 @@ python3 stretch_audio.py "scores/곡이름/"          # 50~95%를 5% 단위로 (
 python3 stretch_audio.py "scores/곡이름/" 60 75    # 원하는 속도만 지정
 ```
 
-원본 옆에 `scores/곡이름/speed-70.wav` 같은 파일이 생기고, 다음에 폴더를 불러오면 자동으로 연습 속도 버튼이 됩니다. 무압축 WAV라 기본 10개를 다 만들면 원본 WAV의 약 10배 용량이 되어 곡 하나에 수백 MB까지 갑니다. 부담되면 필요한 속도만 인자로 지정하세요. `scores/`는 어차피 git에 올라가지 않습니다.
+원본 옆에 `scores/곡이름/speed-70.mp3` 같은 파일이 생기고, 다음에 폴더를 불러오면 자동으로 연습 속도 버튼이 됩니다. **사본은 원본과 같은 포맷으로 저장**하므로 mp3 원본이 WAV로 부풀지 않습니다(m4a/aac는 libsndfile이 인코딩을 지원하지 않아 mp3로 저장). 사본은 원본보다 길어지므로(50%면 두 배) 기본 10개를 다 만들면 원본 파일의 약 15배 정도가 됩니다.
