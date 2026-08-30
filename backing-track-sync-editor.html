@@ -1889,9 +1889,17 @@ function playbackFrameLoop() {
         renderPlayWindow();
       }
     } else if (state.phase === 'ended') {
-      stopSource();
-      const { start0 } = getLoopBounds();
-      updateMeasureDisplay(start0);
+      // 악보의 마지막 마디를 지났다. 구간 반복이면 처음으로 되돌리고,
+      // 아니면 여기서 끊지 않고 파일 끝까지(아웃트로까지) 그대로 재생한다.
+      // 실제 종료는 sourceNode.onended -> handlePlaybackNaturalEnd가 처리한다.
+      if (loopEnabledInput.checked) {
+        const { start0 } = getLoopBounds();
+        stopSource();
+        playFrom(measureStartTime(start0), 'measurePlay');
+      } else {
+        highlightBeatIndicator(-1);
+        renderPlayWindow();
+      }
     }
   }
   // 구간 반복으로 playFrom()이 이미 다음 프레임을 예약했을 수 있으니 중복 예약을 피한다.
