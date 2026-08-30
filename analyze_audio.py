@@ -1,3 +1,4 @@
+import re
 import sys
 import os
 import json
@@ -5,12 +6,19 @@ import json
 import numpy as np
 import librosa
 
-AUDIO_EXTS = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")
+# backing-track-sync-editor.html의 AUDIO_EXT_RE와 같은 목록이어야 한다.
+# 한쪽에만 추가하면 앱은 읽는데 스크립트는 "오디오 파일이 없습니다"가 된다.
+AUDIO_EXTS = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".aiff", ".aif")
+# stretch_audio.py가 만들어둔 느린 사본. 원본 후보에서 빼지 않으면 파일명 정렬 순서에 따라
+# (원본 이름이 "speed-"보다 뒤면) 사본이 원본으로 뽑혀서, 이미 늘린 음원을 또 늘리게 된다.
+SPEED_FILE_RE = re.compile(r"^speed-\d+\.", re.IGNORECASE)
 
 
 def find_audio_file(folder):
     candidates = sorted(
-        f for f in os.listdir(folder) if f.lower().endswith(AUDIO_EXTS)
+        f
+        for f in os.listdir(folder)
+        if f.lower().endswith(AUDIO_EXTS) and not SPEED_FILE_RE.match(f)
     )
     return candidates[0] if candidates else None
 

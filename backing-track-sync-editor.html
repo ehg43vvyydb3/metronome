@@ -105,17 +105,6 @@
     flex-wrap:wrap;
   }
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
-  textarea{
-    width:100%;
-    height:110px;
-    background:#0e1014;
-    border:1px solid var(--line);
-    color:var(--text);
-    border-radius:6px;
-    font-family:var(--mono);
-    font-size:11px;
-    padding:8px;
-  }
   .hint{color:var(--sub); font-size:12px; margin:0 0 6px;}
   .hidden{display:none !important;}
 
@@ -361,7 +350,6 @@ const PEAKS_PER_MEASURE = 60;
 const WAVE_BAND_HEIGHT = 28;
 const LINE_GAP = 14;
 
-let currentLineIndex = 0;
 let windowStartLine = 0;
 let displayMeasureIdx = 0;
 let lastDrawInfos = [];
@@ -380,13 +368,12 @@ let playbackSource = null; // 'preview' | 'measurePlay'
 let playStartedAt = 0;
 let playOffset = 0;
 let currentRate = 1; // 지금 재생 중인 소스에 적용된 배속(파일시간 ↔ 실제시간 환산에 필요)
-// 연습 속도. stretch_audio.py가 미리 만들어둔 speed-N.wav를 쓰기 때문에
+// 연습 속도. stretch_audio.py가 미리 만들어둔 speed-N.*를 쓰기 때문에
 // 음정이 변하지 않는다. speedFiles는 아직 디코딩 안 한 File, speedBuffers는 디코딩 캐시.
 let speedFiles = new Map();    // 퍼센트(number) -> File
 let speedBuffers = new Map();  // 퍼센트(number) -> AudioBuffer
 let activeSpeed = 100;         // 지금 선택된 연습 속도(%). 100이면 원본.
 let startTime = null;
-let fileName = '';
 let markMode = false;
 let tapTimes = [];
 let overviewPeaksCache = null;
@@ -394,7 +381,7 @@ let waveZoom = 1;
 const MIN_WAVE_ZOOM = 1, MAX_WAVE_ZOOM = 40;
 let rafId = null;
 let lastFrameMeasureIdx = -1;
-let dpr = window.devicePixelRatio || 1;
+const dpr = window.devicePixelRatio || 1;
 let detectedMeta = null; // analyze_audio.py가 써둔 audio_meta.json 내용(있으면)
 
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|ogg|flac|aac|aiff|aif)$/i;
@@ -469,6 +456,16 @@ for (const key of RANGE_KEYS) {
 const playModeRadios = Array.from(document.querySelectorAll('input[name="playMode"]'));
 
 function status(msg) { statusEl.textContent = msg; }
+// 캔버스는 창이 좁으면 CSS(max-width:100%)로 줄어드는데 마우스 좌표(offsetX/Y)는
+// 줄어든 CSS 픽셀 기준이라, 그대로 쓰면 마디선·마디 클릭 위치가 실제와 어긋난다.
+// 항상 캔버스 픽셀로 환산해서 쓴다.
+function canvasPoint(el, e) {
+  const rect = el.getBoundingClientRect();
+  return {
+    x: rect.width ? e.offsetX * (el.width / rect.width) : e.offsetX,
+    y: rect.height ? e.offsetY * (el.height / rect.height) : e.offsetY
+  };
+}
 function clampBpm(v) { return Math.min(300, Math.max(20, v)); }
 function getPlayMode() {
   const checked = playModeRadios.find(r => r.checked);
@@ -503,7 +500,7 @@ function measureStartTime(i) { return (startTime || 0) + i * measureDuration(); 
 function countInStartTime() { return (startTime || 0) - (+countInInput.value || 0) * beatInterval(); }
 
 // 위 매핑은 전부 "원본 오디오 안의 시간" 기준이고 연습 속도와 무관하다.
-// 느린 버전(speed-N.wav)은 같은 내용을 1/rate배 길이로 늘여놓은 파일이라,
+// 느린 버전(speed-N.*)은 같은 내용을 1/rate배 길이로 늘여놓은 파일이라,
 // 원본 시간 t는 그 파일 안에서 t/rate 지점에 있다. 그래서 속도를 반영해야 하는 곳은
 // 재생 시작 예약(playFrom)과 경과시간 환산(getCurrentTime)뿐이고,
 // 마디 매핑·파형·하이라이트는 전부 원본 시간 그대로 두면 된다.
@@ -585,18 +582,25 @@ folderInput.onchange = async (e) => {
   status(wanted
     ? `"${wanted}" 폴더를 찾지 못했습니다. 아래에서 곡을 선택하세요.`
     : '선택한 폴더 안에 곡이 여러 개입니다. 아래에서 곡을 선택하세요.');
-  renderFolderPicker(validGroups);
+  renderFolderPicker([...validGroups].map(([name, g]) => ({ name, ...g })));
 };
 
-function renderFolderPicker(groups) {
+// 선택한 폴더 안에 곡이 여러 개일 때 고르는 버튼 목록.
+// showDirectoryPicker로 읽은 곡에는 handle이 붙어 있어서, 다음에 "최근 열기"로
+// 폴더를 다시 고르지 않고 바로 열 수 있도록 저장해둔다.
+function renderFolderPicker(songs) {
   folderPickArea.innerHTML = '';
   const label = document.createElement('span');
   label.textContent = '선택한 폴더 안의 곡: ';
   folderPickArea.appendChild(label);
-  for (const [folder, g] of groups) {
+  for (const song of songs) {
     const btn = document.createElement('button');
-    btn.textContent = `${folder} (${g.pngFiles.length}장 · ${g.audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
-    btn.onclick = () => { folderPickArea.innerHTML = ''; loadProjectFromFiles(g, folder); };
+    btn.textContent = `${song.name} (${song.pngFiles.length}장 · ${song.audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
+    btn.onclick = async () => {
+      if (song.handle) await storeHandle(song.name, song.handle);
+      folderPickArea.innerHTML = '';
+      loadProjectFromFiles(song, song.name);
+    };
     folderPickArea.appendChild(btn);
   }
 }
@@ -676,7 +680,6 @@ async function readPagesFromHandle(dirHandle) {
     else if (AUDIO_EXT_RE.test(name)) audioFiles.push(await entry.getFile());
     else if (META_FILE_RE.test(name)) metaFile = await entry.getFile();
   }
-  audioFiles.sort((a, b) => a.name.localeCompare(b.name));
   return { pngFiles: sortPageFiles(pngFiles), audioFiles, metaFile, speedFiles };
 }
 
@@ -690,24 +693,6 @@ async function readSongsFromParentHandle(dirHandle) {
   return songs;
 }
 
-function renderFolderPickerFromSongs(songs) {
-  folderPickArea.innerHTML = '';
-  const label = document.createElement('span');
-  label.textContent = '선택한 폴더 안의 곡: ';
-  folderPickArea.appendChild(label);
-  for (const song of songs) {
-    const { name, handle, pngFiles, audioFiles } = song;
-    const btn = document.createElement('button');
-    btn.textContent = `${name} (${pngFiles.length}장 · ${audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
-    btn.onclick = async () => {
-      await storeHandle(name, handle);
-      folderPickArea.innerHTML = '';
-      loadProjectFromFiles(song, name);
-    };
-    folderPickArea.appendChild(btn);
-  }
-}
-
 async function pickFolder() {
   if ('showDirectoryPicker' in window) {
     try {
@@ -719,7 +704,7 @@ async function pickFolder() {
           await storeHandle(songs[0].name, songs[0].handle);
           loadProjectFromFiles(songs[0], songs[0].name);
         } else {
-          renderFolderPickerFromSongs(songs);
+          renderFolderPicker(songs);
         }
         return;
       }
@@ -812,6 +797,7 @@ function ensureAudioCtx() {
 async function loadProjectFromFiles(song, name) {
   const { pngFiles, audioFiles, metaFile } = song;
   if (pngFiles.length === 0) { status('page-N.png 형식의 이미지를 찾을 수 없습니다.'); return; }
+  if (isPlaying) stopSource(); // 이전 곡이 재생 중이면 먼저 끊는다
   status('불러오는 중...');
   songName = name;
   addRecentName(name);
@@ -833,18 +819,17 @@ async function loadProjectFromFiles(song, name) {
   selectedLineSource = null;
 
   const saved = loadState();
-  lines = saved ? saved.lines : [];
+  lines = (saved && saved.lines) || [];
 
   audioBuffer = null;
-  fileName = '';
   overviewPeaksCache = null;
   speedFiles = song.speedFiles || new Map();
   speedBuffers = new Map();
   activeSpeed = 100;
   let audioMsg = '오디오 없음';
   if (audioFiles.length > 0) {
-    const chosen = audioFiles[0];
-    fileName = chosen.name;
+    // 오디오가 여러 개면 파일명 알파벳순 첫 번째를 쓴다(선택 UI는 만들지 않았다).
+    const chosen = [...audioFiles].sort((a, b) => a.name.localeCompare(b.name))[0];
     try {
       ensureAudioCtx();
       const arrayBuf = await chosen.arrayBuffer();
@@ -958,6 +943,9 @@ function computeOverviewPeaks() {
 }
 
 function resizeCanvas() {
+  // 파형은 오디오 싱크 화면에서만 보인다. 다른 모드(특히 전체화면 연습 중 resize)에서는
+  // 패널이 숨겨져 폭도 못 재고, 오디오 전체를 다시 훑는 피크 계산만 낭비된다.
+  if (mode !== 'audio') return;
   const containerWidth = waveScroll.clientWidth || waveScroll.parentElement.clientWidth || 700;
   const cssWidth = Math.round(containerWidth * waveZoom);
   canvas.style.width = cssWidth + 'px';
@@ -1082,6 +1070,8 @@ function playFrom(offset, source) {
 }
 
 function stopSource() {
+  // 멈춘 그 자리에 재생 위치를 고정한다(파형의 흰 커서, 다음 미리듣기 시작점).
+  playOffset = getCurrentTime();
   if (sourceNode) { try { sourceNode.onended = null; sourceNode.stop(); } catch (e) {} }
   isPlaying = false;
   playbackSource = null;
@@ -1100,6 +1090,7 @@ function getCurrentTime() {
 }
 
 function handlePlaybackNaturalEnd() {
+  playOffset = getCurrentTime();
   isPlaying = false;
   playbackSource = null;
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
@@ -1122,26 +1113,23 @@ function updateCurTimeDisplay() {
 
 playBtn.addEventListener('click', () => {
   if (!audioBuffer) return;
-  if (isPlaying) {
-    playOffset = getCurrentTime();
-    stopSource();
-  } else {
-    playFrom(playOffset, 'preview');
-  }
+  if (isPlaying) stopSource();
+  else playFrom(playOffset, 'preview');
 });
 
 canvas.addEventListener('click', e => {
   if (!audioBuffer) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * dpr;
-  const t = (x / canvas.width) * audioBuffer.duration;
+  const t = (canvasPoint(canvas, e).x / canvas.width) * audioBuffer.duration;
   if (markMode) {
     startTime = Math.max(0, t);
     startTimeShowEl.textContent = startTime.toFixed(2);
     onSyncParamsChanged();
   } else {
+    // stopSource()가 "멈춘 자리"로 playOffset을 되돌리므로, 클릭 위치는 그 뒤에 넣는다.
+    const wasPlaying = isPlaying;
+    if (wasPlaying) stopSource();
     playOffset = Math.max(0, Math.min(t, audioBuffer.duration));
-    if (isPlaying) { stopSource(); playFrom(playOffset, 'preview'); }
+    if (wasPlaying) playFrom(playOffset, 'preview');
     updateCurTimeDisplay();
   }
   draw();
@@ -1331,20 +1319,21 @@ function drawAnnotateOverlays() {
 }
 
 annotateCanvas.onmousedown = (e) => {
+  const p = canvasPoint(annotateCanvas, e);
   if (pendingBox) {
-    const h = hitHandle(pendingBox, e.offsetX, e.offsetY);
+    const h = hitHandle(pendingBox, p.x, p.y);
     if (h) {
       resizeHandle = h;
       dragStart = null;
       return;
     }
   }
-  dragStart = { x: e.offsetX, y: e.offsetY };
+  dragStart = p;
 };
 
 annotateCanvas.onmousemove = (e) => {
   if (!resizeHandle || !pendingBox) return;
-  const mx = e.offsetX, my = e.offsetY;
+  const { x: mx, y: my } = canvasPoint(annotateCanvas, e);
   let x = pendingBox.x, y = pendingBox.y;
   let x2 = pendingBox.x + pendingBox.w, y2 = pendingBox.y + pendingBox.h;
   if (resizeHandle === 'tl') { x = mx; y = my; }
@@ -1377,20 +1366,21 @@ annotateCanvas.onmouseup = (e) => {
     return;
   }
   if (!dragStart) return;
-  const dx = e.offsetX - dragStart.x, dy = e.offsetY - dragStart.y;
+  const p = canvasPoint(annotateCanvas, e);
+  const dx = p.x - dragStart.x, dy = p.y - dragStart.y;
   const moved = Math.max(Math.abs(dx), Math.abs(dy));
 
   if (moved < 6) {
     if (pendingBox) {
-      handleAnnotateClick(e.offsetX);
+      handleAnnotateClick(p.x);
     } else {
-      selectLineAt(e.offsetX, e.offsetY);
+      selectLineAt(p.x, p.y);
     }
   } else if (!pendingBox || !pointInPendingBox(dragStart.x, dragStart.y)) {
     if (pendingBox) addPendingAsDraft();
     pendingBox = {
-      x: Math.min(dragStart.x, e.offsetX),
-      y: Math.min(dragStart.y, e.offsetY),
+      x: Math.min(dragStart.x, p.x),
+      y: Math.min(dragStart.y, p.y),
       w: Math.abs(dx),
       h: Math.abs(dy)
     };
@@ -1737,8 +1727,7 @@ function renderPlayWindow() {
 
 function updateMeasureDisplay(idx) {
   displayMeasureIdx = idx;
-  const line = measures[idx] ? measures[idx].lineIndex : currentLineIndex;
-  currentLineIndex = line;
+  const line = measures[idx] ? measures[idx].lineIndex : windowStartLine;
   const oldWindowStartLine = windowStartLine;
   if (line < windowStartLine || line >= windowStartLine + 2) {
     windowStartLine = line;
@@ -1768,7 +1757,8 @@ measureJumpInput.addEventListener('keydown', (e) => {
 });
 
 playCanvas.onclick = (e) => {
-  const idx = measureAtPoint(e.offsetX, e.offsetY);
+  const p = canvasPoint(playCanvas, e);
+  const idx = measureAtPoint(p.x, p.y);
   if (idx === null) return;
   if (isPlaying) stopMeasurePlayback();
   updateMeasureDisplay(idx);
@@ -1812,7 +1802,7 @@ function renderSpeedButtons() {
     speedButtonsEl.appendChild(btn);
   }
   speedHint.textContent = speedFiles.size === 0
-    ? '느린 버전이 없습니다. stretch_audio.py로 미리 만들어 폴더에 넣으면(scores/곡이름/speed-80.wav) 음정 그대로 느리게 연습할 수 있습니다.'
+    ? '느린 버전이 없습니다. stretch_audio.py로 미리 만들어 폴더에 넣으면(scores/곡이름/speed-80.mp3 등, 확장자는 원본을 따릅니다) 음정 그대로 느리게 연습할 수 있습니다.'
     : '음정은 그대로 유지됩니다(stretch_audio.py로 미리 변환해둔 파일 재생).';
 }
 
@@ -1917,10 +1907,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 resetToStartBtn.onclick = () => {
+  // 1번 마디가 아니라 지금 선택된 재생 구간의 시작 마디로 간다
+  // (일부 재생으로 구간 연습 중에 곡 맨 앞으로 튀면 연습이 끊긴다).
   if (isPlaying) stopMeasurePlayback();
-  currentLineIndex = 0;
-  windowStartLine = 0;
-  updateMeasureDisplay(0);
+  const { start0 } = getLoopBounds();
+  updateMeasureDisplay(start0);
 };
 
 // ===== 전체화면 연습 모드 =====
@@ -1977,7 +1968,6 @@ function setMode(m) {
   if (m === 'annotate' && pageImagesByNum.has(currentAnnotatePage)) renderAnnotatePage(currentAnnotatePage);
   if (m === 'play') {
     computeMeasures();
-    currentLineIndex = 0;
     windowStartLine = 0;
     displayMeasureIdx = 0;
     renderSpeedButtons();

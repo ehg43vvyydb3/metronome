@@ -184,6 +184,11 @@
 
 <script>
 const CANVAS_WIDTH = 760;
+const PNG_NAME_RE = /^page-\d+\.png$/i;
+
+function sortPageFiles(files) {
+  return files.slice().sort((a, b) => (+a.name.match(/\d+/)[0]) - (+b.name.match(/\d+/)[0]));
+}
 
 let songName = null;
 let pageNumbers = [];
@@ -222,7 +227,6 @@ function hitHandle(box, mx, my) {
 
 let measures = [];
 
-let currentLineIndex = 0;
 let windowStartLine = 0;
 let displayMeasureIdx = 0;
 
@@ -390,7 +394,7 @@ function loadImage(file) {
 }
 
 async function loadPagesFromFiles(files, name) {
-  const pngFiles = files.filter(f => /^page-\d+\.png$/i.test(f.name));
+  const pngFiles = sortPageFiles(files.filter(f => PNG_NAME_RE.test(f.name)));
   if (pngFiles.length === 0) {
     status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
     return;
@@ -399,12 +403,6 @@ async function loadPagesFromFiles(files, name) {
   songName = name;
   addRecentName(name);
   renderRecentList();
-
-  pngFiles.sort((a, b) => {
-    const na = +a.name.match(/\d+/)[0];
-    const nb = +b.name.match(/\d+/)[0];
-    return na - nb;
-  });
 
   pageImagesByNum = new Map();
   pageNumbers = [];
@@ -422,7 +420,7 @@ async function loadPagesFromFiles(files, name) {
 
   const saved = loadState();
   if (saved) {
-    lines = saved.lines;
+    lines = saved.lines || [];
     bpmInput.value = saved.bpm;
     beatsPerMeasureInput.value = saved.beatsPerMeasure;
     subdivisionSelect.value = saved.subdivision;
@@ -460,7 +458,7 @@ function songFolderName(file) {
 function groupPagesByFolder(files) {
   const groups = new Map();
   for (const f of files) {
-    if (!/^page-\d+\.png$/i.test(f.name)) continue;
+    if (!PNG_NAME_RE.test(f.name)) continue;
     const folder = songFolderName(f) || 'unknown';
     if (!groups.has(folder)) groups.set(folder, []);
     groups.get(folder).push(f);
@@ -468,17 +466,21 @@ function groupPagesByFolder(files) {
   return groups;
 }
 
-function renderFolderPicker(groups) {
+// 선택한 폴더 안에 곡이 여러 개일 때 고르는 버튼 목록.
+// showDirectoryPicker로 읽은 곡에는 handle이 붙어 있어서, 다음에 "최근 열기"로
+// 폴더를 다시 고르지 않고 바로 열 수 있도록 저장해둔다.
+function renderFolderPicker(songs) {
   folderPickArea.innerHTML = '';
   const label = document.createElement('span');
   label.textContent = '선택한 폴더 안의 곡: ';
   folderPickArea.appendChild(label);
-  for (const [folder, pngFiles] of groups) {
+  for (const { name, files, handle } of songs) {
     const btn = document.createElement('button');
-    btn.textContent = `${folder} (${pngFiles.length}장)`;
-    btn.onclick = () => {
+    btn.textContent = `${name} (${files.length}장)`;
+    btn.onclick = async () => {
+      if (handle) await storeHandle(name, handle);
       folderPickArea.innerHTML = '';
-      loadPagesFromFiles(pngFiles, folder);
+      loadPagesFromFiles(files, name);
     };
     folderPickArea.appendChild(btn);
   }
@@ -508,7 +510,7 @@ folderInput.onchange = async (e) => {
   status(wanted
     ? `"${wanted}" 폴더를 찾지 못했습니다. 아래에서 곡을 선택하세요.`
     : '선택한 폴더 안에 곡이 여러 개입니다. 아래에서 곡을 선택하세요.');
-  renderFolderPicker(groups);
+  renderFolderPicker([...groups].map(([name, files]) => ({ name, files })));
 };
 
 function getRecentNames() {
@@ -584,55 +586,21 @@ async function storeHandle(name, handle) {
 async function readPagesFromHandle(dirHandle) {
   const files = [];
   for await (const [name, entry] of dirHandle.entries()) {
-    if (entry.kind === 'file' && /^page-\d+\.png$/i.test(name)) {
+    if (entry.kind === 'file' && PNG_NAME_RE.test(name)) {
       files.push(await entry.getFile());
     }
   }
-  files.sort((a, b) => {
-    const na = +a.name.match(/\d+/)[0];
-    const nb = +b.name.match(/\d+/)[0];
-    return na - nb;
-  });
-  return files;
+  return sortPageFiles(files);
 }
 
 async function readSongsFromParentHandle(dirHandle) {
   const songs = [];
   for await (const [name, entry] of dirHandle.entries()) {
     if (entry.kind !== 'directory') continue;
-    const subFiles = [];
-    for await (const [subName, subEntry] of entry.entries()) {
-      if (subEntry.kind === 'file' && /^page-\d+\.png$/i.test(subName)) {
-        subFiles.push(await subEntry.getFile());
-      }
-    }
-    if (subFiles.length > 0) {
-      subFiles.sort((a, b) => {
-        const na = +a.name.match(/\d+/)[0];
-        const nb = +b.name.match(/\d+/)[0];
-        return na - nb;
-      });
-      songs.push({ name, handle: entry, files: subFiles });
-    }
+    const files = await readPagesFromHandle(entry);
+    if (files.length > 0) songs.push({ name, handle: entry, files });
   }
   return songs;
-}
-
-function renderFolderPickerFromSongs(songs) {
-  folderPickArea.innerHTML = '';
-  const label = document.createElement('span');
-  label.textContent = '선택한 폴더 안의 곡: ';
-  folderPickArea.appendChild(label);
-  for (const { name, handle, files } of songs) {
-    const btn = document.createElement('button');
-    btn.textContent = `${name} (${files.length}장)`;
-    btn.onclick = async () => {
-      await storeHandle(name, handle);
-      folderPickArea.innerHTML = '';
-      loadPagesFromFiles(files, name);
-    };
-    folderPickArea.appendChild(btn);
-  }
 }
 
 async function pickFolder() {
@@ -647,7 +615,7 @@ async function pickFolder() {
           await storeHandle(songs[0].name, songs[0].handle);
           loadPagesFromFiles(songs[0].files, songs[0].name);
         } else {
-          renderFolderPickerFromSongs(songs);
+          renderFolderPicker(songs);
         }
         return;
       }
@@ -1120,8 +1088,7 @@ measureJumpInput.addEventListener('keydown', (e) => {
 
 function updateMeasureDisplay(idx) {
   displayMeasureIdx = idx;
-  const line = measures[idx] ? measures[idx].lineIndex : currentLineIndex;
-  currentLineIndex = line;
+  const line = measures[idx] ? measures[idx].lineIndex : windowStartLine;
   const oldWindowStartLine = windowStartLine;
   if (line < windowStartLine || line >= windowStartLine + 2) {
     windowStartLine = line;
@@ -1174,7 +1141,6 @@ function setMode(m) {
   }
   if (m === 'play') {
     computeMeasures();
-    currentLineIndex = 0;
     windowStartLine = 0;
     displayMeasureIdx = 0;
     for (const key of RANGE_KEYS) {

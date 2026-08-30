@@ -6,7 +6,7 @@ import soundfile as sf
 
 from analyze_audio import find_audio_file
 
-# 만들어진 파일은 scores/곡이름/speed-80.wav 처럼 저장된다.
+# 만들어진 파일은 scores/곡이름/speed-80.mp3 처럼 저장된다(확장자는 아래 규칙대로 원본을 따른다).
 # backing-track-sync-editor.html이 이 이름 규칙으로 느린 버전을 찾아
 # 연습 속도 버튼을 만들고, 재생할 때 원본 대신 이 파일을 쓴다.
 OUT_PREFIX = "speed-"
@@ -37,6 +37,12 @@ def output_format(audio_path):
 
 
 def stretch(path, percents):
+    # 오디오를 읽기 전에 먼저 검사한다 — 잘못된 값이 섞여 있으면 긴 디코딩 뒤에
+    # 실패하거나, 파일을 반만 만들어놓고 멈추게 된다.
+    for pct in percents:
+        if not (10 <= pct <= 200):
+            raise ValueError(f"속도는 10~200(%) 사이여야 합니다: {pct}")
+
     if os.path.isdir(path):
         folder = path
         name = find_audio_file(folder)
@@ -55,8 +61,6 @@ def stretch(path, percents):
 
     out_paths = []
     for pct in percents:
-        if not (10 <= pct <= 200):
-            raise ValueError(f"속도는 10~200(%) 사이여야 합니다: {pct}")
         if pct == 100:
             continue
         rate = pct / 100.0
