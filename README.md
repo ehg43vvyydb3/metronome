@@ -91,11 +91,11 @@ The editor reads `audio_meta.json` when you load the folder and fills in the BPM
 Renders slowed-down copies of the track **without changing pitch**, so you can practice under tempo and still play in tune.
 
 ```bash
-python3 stretch_audio.py "scores/song/"           # 70%, 80%, 90%
-python3 stretch_audio.py "scores/song/" 60 75     # pick your own
+python3 stretch_audio.py "scores/song/"           # 50–95% in 5% steps (10 files)
+python3 stretch_audio.py "scores/song/" 60 75     # or pick your own
 ```
 
-It writes `scores/song/speed-70.wav` etc. next to the original; the editor picks them up on the next folder load and turns them into practice-speed buttons. They're uncompressed WAV, so expect tens of MB per copy — `scores/` isn't in git anyway.
+It writes `scores/song/speed-70.wav` etc. next to the original; the editor picks them up on the next folder load and turns them into practice-speed buttons. They're uncompressed WAV, so the full default set runs roughly 10× the size of a WAV of the original — several hundred MB for a full-length song. Pass a few speeds explicitly if that's too much; `scores/` isn't in git either way.
 
 ---
 
@@ -184,8 +184,8 @@ python3 analyze_audio.py "scores/곡이름/"   # scores/곡이름/audio_meta.jso
 **음정은 그대로 두고** 속도만 늦춘 사본을 만들어줍니다. 느리게 연습해도 기타 튜닝과 맞습니다.
 
 ```bash
-python3 stretch_audio.py "scores/곡이름/"          # 70%, 80%, 90%
-python3 stretch_audio.py "scores/곡이름/" 60 75    # 원하는 속도 지정
+python3 stretch_audio.py "scores/곡이름/"          # 50~95%를 5% 단위로 (10개)
+python3 stretch_audio.py "scores/곡이름/" 60 75    # 원하는 속도만 지정
 ```
 
-원본 옆에 `scores/곡이름/speed-70.wav` 같은 파일이 생기고, 다음에 폴더를 불러오면 자동으로 연습 속도 버튼이 됩니다. 무압축 WAV라 사본 하나에 수십 MB가 되지만 `scores/`는 어차피 git에 올라가지 않습니다.
+원본 옆에 `scores/곡이름/speed-70.wav` 같은 파일이 생기고, 다음에 폴더를 불러오면 자동으로 연습 속도 버튼이 됩니다. 무압축 WAV라 기본 10개를 다 만들면 원본 WAV의 약 10배 용량이 되어 곡 하나에 수백 MB까지 갑니다. 부담되면 필요한 속도만 인자로 지정하세요. `scores/`는 어차피 git에 올라가지 않습니다.

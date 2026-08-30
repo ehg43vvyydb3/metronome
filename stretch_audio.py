@@ -11,6 +11,9 @@ from analyze_audio import find_audio_file
 # 연습 속도 버튼을 만들고, 재생할 때 원본 대신 이 파일을 쓴다.
 OUT_PREFIX = "speed-"
 
+# 속도를 안 주면 만드는 기본 목록: 50~95%를 5% 단위로.
+DEFAULT_PERCENTS = list(range(50, 100, 5))
+
 
 def stretch(path, percents):
     if os.path.isdir(path):
@@ -46,9 +49,10 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("usage: python3 stretch_audio.py <scores/곡이름 폴더 또는 오디오 파일> [속도%...]")
         print("  예: python3 stretch_audio.py scores/곡이름/ 70 80 90")
-        print("  속도를 안 주면 70 80 90 을 만든다. 음정은 그대로 두고 속도만 바꾼다.")
+        print(f"  속도를 안 주면 {DEFAULT_PERCENTS[0]}~{DEFAULT_PERCENTS[-1]}%를 5% 단위로 만든다"
+              f"({len(DEFAULT_PERCENTS)}개). 음정은 그대로 두고 속도만 바꾼다.")
         sys.exit(1)
     path = sys.argv[1]
-    percents = [int(a) for a in sys.argv[2:]] or [70, 80, 90]
+    percents = [int(a) for a in sys.argv[2:]] or DEFAULT_PERCENTS
     for out_path in stretch(path, percents):
         print(out_path)
