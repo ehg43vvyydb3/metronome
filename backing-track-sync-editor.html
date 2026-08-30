@@ -84,6 +84,7 @@
   button.primary{background:var(--accent); color:#0e1014; border-color:var(--accent); font-weight:600;}
   button.warn{background:var(--marker); color:#1a0e0e; border-color:var(--marker); font-weight:600;}
   button.modeBtn.active{background:var(--grid); color:#fff; border-color:var(--grid);}
+  #speedButtons button.active{background:var(--accent); color:#0e1014; border-color:var(--accent); font-weight:600;}
   button.toggle.on{background:var(--grid); color:#fff; border-color:var(--grid);}
   .stats{
     display:flex;
@@ -293,19 +294,10 @@
     <input type="number" id="measureJumpInput" min="1" value="1" class="narrow practiceHide">
     <span class="practiceHide">/ <span id="measureTotal">0</span></span>
   </div>
-  <div class="row practiceHide">
-    <div class="field">
-      <label>연습 BPM (재생 속도)</label>
-      <div class="row" style="margin-top:0;">
-        <button id="practiceBpmMinus5">-5</button>
-        <button id="practiceBpmMinus1">-1</button>
-        <input type="number" id="practiceBpmInput" min="20" max="300" step="0.1">
-        <button id="practiceBpmPlus1">+1</button>
-        <button id="practiceBpmPlus5">+5</button>
-        <button id="practiceBpmResetBtn">원래 속도</button>
-      </div>
-    </div>
-    <span id="practiceRateHint" class="hint" style="margin:0;"></span>
+  <div class="practiceHide">
+    <label>연습 속도</label>
+    <div class="row" id="speedButtons"></div>
+    <p class="hint" id="speedHint" style="margin-top:6px;"></p>
   </div>
   <div id="playModeRows" class="practiceHide">
     <div class="modeRow">
@@ -388,6 +380,11 @@ let playbackSource = null; // 'preview' | 'measurePlay'
 let playStartedAt = 0;
 let playOffset = 0;
 let currentRate = 1; // 지금 재생 중인 소스에 적용된 배속(파일시간 ↔ 실제시간 환산에 필요)
+// 연습 속도. stretch_audio.py가 미리 만들어둔 speed-N.wav를 쓰기 때문에
+// 음정이 변하지 않는다. speedFiles는 아직 디코딩 안 한 File, speedBuffers는 디코딩 캐시.
+let speedFiles = new Map();    // 퍼센트(number) -> File
+let speedBuffers = new Map();  // 퍼센트(number) -> AudioBuffer
+let activeSpeed = 100;         // 지금 선택된 연습 속도(%). 100이면 원본.
 let startTime = null;
 let fileName = '';
 let markMode = false;
@@ -403,6 +400,8 @@ let detectedMeta = null; // analyze_audio.py가 써둔 audio_meta.json 내용(�
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
 const PNG_NAME_RE = /^page-\d+\.png$/i;
 const META_FILE_RE = /^audio_meta\.json$/i;
+// stretch_audio.py가 만든 느린 버전. 메인 오디오 후보에서는 빼고 따로 모은다.
+const SPEED_FILE_RE = /^speed-(\d+)\.(mp3|wav|m4a|ogg|flac|aac)$/i;
 
 // ===== DOM =====
 const folderBtn = document.getElementById('folderBtn');
@@ -456,8 +455,8 @@ const measureJumpInput = document.getElementById('measureJumpInput');
 const measureTotalEl = document.getElementById('measureTotal');
 const loopEnabledInput = document.getElementById('loopEnabled');
 const beatIndicatorEl = document.getElementById('beatIndicator');
-const practiceBpmInput = document.getElementById('practiceBpmInput');
-const practiceRateHint = document.getElementById('practiceRateHint');
+const speedButtonsEl = document.getElementById('speedButtons');
+const speedHint = document.getElementById('speedHint');
 
 const RANGE_KEYS = ['once1', 'once2', 'once3'];
 const rangeInputs = {};
@@ -503,16 +502,12 @@ function measureDuration() { return (+beatsPerBarInput.value || 4) * beatInterva
 function measureStartTime(i) { return (startTime || 0) + i * measureDuration(); }
 function countInStartTime() { return (startTime || 0) - (+countInInput.value || 0) * beatInterval(); }
 
-// 연습 속도(배속). 위 매핑은 전부 "오디오 파일 안의 시간" 기준이고 배속과 무관하므로,
-// 배속은 실제 시간으로 환산하는 두 곳 — 재생 시작 예약(playFrom)과 현재 위치
-// 계산(getCurrentTime) — 에서만 반영하면 나머지 로직은 그대로 맞는다.
-function practiceBpm() {
-  const v = +practiceBpmInput.value;
-  return v > 0 ? v : (+bpmInput.value || 120);
-}
-function playbackRate() {
-  return Math.min(4, Math.max(0.25, practiceBpm() / (+bpmInput.value || 120)));
-}
+// 위 매핑은 전부 "원본 오디오 안의 시간" 기준이고 연습 속도와 무관하다.
+// 느린 버전(speed-N.wav)은 같은 내용을 1/rate배 길이로 늘여놓은 파일이라,
+// 원본 시간 t는 그 파일 안에서 t/rate 지점에 있다. 그래서 속도를 반영해야 하는 곳은
+// 재생 시작 예약(playFrom)과 경과시간 환산(getCurrentTime)뿐이고,
+// 마디 매핑·파형·하이라이트는 전부 원본 시간 그대로 두면 된다.
+function practiceRate() { return activeSpeed / 100; }
 
 function computePlaybackState(t) {
   const st = startTime || 0;
@@ -548,12 +543,14 @@ function groupSongFiles(files) {
   const groups = new Map();
   for (const f of files) {
     const isPng = PNG_NAME_RE.test(f.name);
-    const isAudio = AUDIO_EXT_RE.test(f.name);
+    const speedMatch = f.name.match(SPEED_FILE_RE);
+    const isAudio = !speedMatch && AUDIO_EXT_RE.test(f.name);
     const isMeta = META_FILE_RE.test(f.name);
-    if (!isPng && !isAudio && !isMeta) continue;
+    if (!isPng && !isAudio && !isMeta && !speedMatch) continue;
     const folder = songFolderName(f) || 'unknown';
-    if (!groups.has(folder)) groups.set(folder, { pngFiles: [], audioFiles: [], metaFile: null });
+    if (!groups.has(folder)) groups.set(folder, { pngFiles: [], audioFiles: [], metaFile: null, speedFiles: new Map() });
     if (isPng) groups.get(folder).pngFiles.push(f);
+    else if (speedMatch) groups.get(folder).speedFiles.set(+speedMatch[1], f);
     else if (isAudio) groups.get(folder).audioFiles.push(f);
     else groups.get(folder).metaFile = f;
   }
@@ -577,12 +574,12 @@ folderInput.onchange = async (e) => {
   }
   if (wanted && validGroups.has(wanted)) {
     const g = validGroups.get(wanted);
-    await loadProjectFromFiles(g.pngFiles, g.audioFiles, wanted, g.metaFile);
+    await loadProjectFromFiles(g, wanted);
     return;
   }
   if (validGroups.size === 1) {
     const [folder, g] = [...validGroups][0];
-    await loadProjectFromFiles(g.pngFiles, g.audioFiles, folder, g.metaFile);
+    await loadProjectFromFiles(g, folder);
     return;
   }
   status(wanted
@@ -599,7 +596,7 @@ function renderFolderPicker(groups) {
   for (const [folder, g] of groups) {
     const btn = document.createElement('button');
     btn.textContent = `${folder} (${g.pngFiles.length}장 · ${g.audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
-    btn.onclick = () => { folderPickArea.innerHTML = ''; loadProjectFromFiles(g.pngFiles, g.audioFiles, folder, g.metaFile); };
+    btn.onclick = () => { folderPickArea.innerHTML = ''; loadProjectFromFiles(g, folder); };
     folderPickArea.appendChild(btn);
   }
 }
@@ -669,23 +666,26 @@ function sortPageFiles(files) {
 async function readPagesFromHandle(dirHandle) {
   const pngFiles = [];
   const audioFiles = [];
+  const speedFiles = new Map();
   let metaFile = null;
   for await (const [name, entry] of dirHandle.entries()) {
     if (entry.kind !== 'file') continue;
+    const speedMatch = name.match(SPEED_FILE_RE);
     if (PNG_NAME_RE.test(name)) pngFiles.push(await entry.getFile());
+    else if (speedMatch) speedFiles.set(+speedMatch[1], await entry.getFile());
     else if (AUDIO_EXT_RE.test(name)) audioFiles.push(await entry.getFile());
     else if (META_FILE_RE.test(name)) metaFile = await entry.getFile();
   }
   audioFiles.sort((a, b) => a.name.localeCompare(b.name));
-  return { pngFiles: sortPageFiles(pngFiles), audioFiles, metaFile };
+  return { pngFiles: sortPageFiles(pngFiles), audioFiles, metaFile, speedFiles };
 }
 
 async function readSongsFromParentHandle(dirHandle) {
   const songs = [];
   for await (const [name, entry] of dirHandle.entries()) {
     if (entry.kind !== 'directory') continue;
-    const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(entry);
-    if (pngFiles.length > 0) songs.push({ name, handle: entry, pngFiles, audioFiles, metaFile });
+    const files = await readPagesFromHandle(entry);
+    if (files.pngFiles.length > 0) songs.push({ name, handle: entry, ...files });
   }
   return songs;
 }
@@ -695,13 +695,14 @@ function renderFolderPickerFromSongs(songs) {
   const label = document.createElement('span');
   label.textContent = '선택한 폴더 안의 곡: ';
   folderPickArea.appendChild(label);
-  for (const { name, handle, pngFiles, audioFiles, metaFile } of songs) {
+  for (const song of songs) {
+    const { name, handle, pngFiles, audioFiles } = song;
     const btn = document.createElement('button');
     btn.textContent = `${name} (${pngFiles.length}장 · ${audioFiles.length > 0 ? '오디오 있음' : '오디오 없음'})`;
     btn.onclick = async () => {
       await storeHandle(name, handle);
       folderPickArea.innerHTML = '';
-      loadProjectFromFiles(pngFiles, audioFiles, name, metaFile);
+      loadProjectFromFiles(song, name);
     };
     folderPickArea.appendChild(btn);
   }
@@ -716,7 +717,7 @@ async function pickFolder() {
       if (songs.length > 0 && direct.pngFiles.length === 0) {
         if (songs.length === 1) {
           await storeHandle(songs[0].name, songs[0].handle);
-          loadProjectFromFiles(songs[0].pngFiles, songs[0].audioFiles, songs[0].name, songs[0].metaFile);
+          loadProjectFromFiles(songs[0], songs[0].name);
         } else {
           renderFolderPickerFromSongs(songs);
         }
@@ -724,7 +725,7 @@ async function pickFolder() {
       }
       if (direct.pngFiles.length > 0) {
         await storeHandle(handle.name, handle);
-        loadProjectFromFiles(direct.pngFiles, direct.audioFiles, handle.name, direct.metaFile);
+        loadProjectFromFiles(direct, handle.name);
         return;
       }
       status('page-N.png 형식의 이미지를 찾을 수 없습니다.');
@@ -746,8 +747,8 @@ async function openRecentByName(name) {
         const newPerm = await handle.requestPermission({ mode: 'read' });
         if (newPerm !== 'granted') throw new Error('denied');
       }
-      const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(handle);
-      if (pngFiles.length > 0) { loadProjectFromFiles(pngFiles, audioFiles, name, metaFile); return; }
+      const files = await readPagesFromHandle(handle);
+      if (files.pngFiles.length > 0) { loadProjectFromFiles(files, name); return; }
     } catch { /* fall through */ }
   }
   if ('showDirectoryPicker' in window) {
@@ -755,10 +756,10 @@ async function openRecentByName(name) {
       const newHandle = await window.showDirectoryPicker({ mode: 'read' });
       const dirName = newHandle.name;
       if (dirName === name) {
-        const { pngFiles, audioFiles, metaFile } = await readPagesFromHandle(newHandle);
-        if (pngFiles.length > 0) {
+        const files = await readPagesFromHandle(newHandle);
+        if (files.pngFiles.length > 0) {
           await storeHandle(name, newHandle);
-          loadProjectFromFiles(pngFiles, audioFiles, name, metaFile);
+          loadProjectFromFiles(files, name);
           return;
         }
       }
@@ -766,7 +767,7 @@ async function openRecentByName(name) {
       const match = songs.find(s => s.name === name);
       if (match) {
         await storeHandle(name, match.handle);
-        loadProjectFromFiles(match.pngFiles, match.audioFiles, name, match.metaFile);
+        loadProjectFromFiles(match, name);
         return;
       }
     } catch (e) {
@@ -787,7 +788,7 @@ function saveState() {
     beatsPerBar: +beatsPerBarInput.value,
     countInBeats: +countInInput.value,
     startTime: startTime,
-    practiceBpm: practiceBpm(),
+    practiceSpeed: activeSpeed,
     playMode: getPlayMode(),
     loopEnabled: loopEnabledInput.checked,
     ranges: Object.fromEntries(RANGE_KEYS.map(key => [key, {
@@ -808,7 +809,8 @@ function ensureAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
-async function loadProjectFromFiles(pngFiles, audioFiles, name, metaFile) {
+async function loadProjectFromFiles(song, name) {
+  const { pngFiles, audioFiles, metaFile } = song;
   if (pngFiles.length === 0) { status('page-N.png 형식의 이미지를 찾을 수 없습니다.'); return; }
   status('불러오는 중...');
   songName = name;
@@ -836,6 +838,9 @@ async function loadProjectFromFiles(pngFiles, audioFiles, name, metaFile) {
   audioBuffer = null;
   fileName = '';
   overviewPeaksCache = null;
+  speedFiles = song.speedFiles || new Map();
+  speedBuffers = new Map();
+  activeSpeed = 100;
   let audioMsg = '오디오 없음';
   if (audioFiles.length > 0) {
     const chosen = audioFiles[0];
@@ -879,7 +884,8 @@ async function loadProjectFromFiles(pngFiles, audioFiles, name, metaFile) {
       rangeInputs[key].end.value = r.end || 1;
     }
     volumeInput.value = saved.volume ?? 100;
-    practiceBpmInput.value = saved.practiceBpm ?? saved.bpm ?? 120;
+    // 저장된 속도라도 그 speed-N 파일이 폴더에 없으면 원래 속도로 되돌린다.
+    activeSpeed = speedFiles.has(saved.practiceSpeed) ? saved.practiceSpeed : 100;
   } else {
     bpmInput.value = detectedMeta ? detectedMeta.bpm : 120;
     beatsPerBarInput.value = 4;
@@ -892,10 +898,10 @@ async function loadProjectFromFiles(pngFiles, audioFiles, name, metaFile) {
       rangeInputs[key].end.value = 1;
     }
     volumeInput.value = 100;
-    practiceBpmInput.value = bpmInput.value; // 기본은 오디오 싱크의 BPM = 원래 속도
+    activeSpeed = 100; // 기본은 원래 속도 = 오디오 싱크의 BPM
   }
   volumeValue.textContent = volumeInput.value + '%';
-  updatePracticeRateHint();
+  renderSpeedButtons();
   playOffset = 0;
   startTimeShowEl.textContent = startTime != null ? startTime.toFixed(2) : '-';
   curTimeEl.textContent = '0.00';
@@ -1048,19 +1054,22 @@ function ensureGain() {
 function playFrom(offset, source) {
   ensureAudioCtx();
   ensureGain();
+  // 연습 속도는 마디 재생에만 적용한다(오디오 싱크 패널의 미리듣기는 늘 원본).
+  // playbackRate로 배속을 주면 음정까지 변하므로, 대신 stretch_audio.py가
+  // 음정을 유지한 채 미리 늘여둔 파일을 그냥 정상 속도로 재생한다.
+  const useSlow = source === 'measurePlay' && activeSpeed !== 100 && speedBuffers.has(activeSpeed);
+  const rate = useSlow ? practiceRate() : 1;
   sourceNode = audioCtx.createBufferSource();
-  sourceNode.buffer = audioBuffer;
+  sourceNode.buffer = useSlow ? speedBuffers.get(activeSpeed) : audioBuffer;
   sourceNode.connect(gainNode);
   // offset이 음수면(준비박 구간이 파일 시작보다 앞서야 하는 경우) 오디오 파일을
   // 건드리지 않고, 그만큼 Web Audio 스케줄러에 재생 시작을 미뤄서 정확히 파일의
   // 0초 지점부터 이어지게 한다 — 무음을 파일에 덧붙이는 대신 재생 타이밍만 늦춘다.
-  // 배속은 마디 재생에만 적용한다(오디오 싱크 패널의 미리듣기는 항상 원래 속도).
-  const rate = source === 'measurePlay' ? playbackRate() : 1;
-  sourceNode.playbackRate.value = rate;
   currentRate = rate;
-  // delay는 "파일시간 -offset만큼 기다린다"를 실제 시간으로 환산한 값이다.
+  // offset은 원본 타임라인 기준이다. 느린 파일에서는 같은 지점이 offset/rate에 있고,
+  // 준비박 대기(-offset)도 실제 시간으로는 그만큼 길어진다.
   const delay = Math.max(0, -offset) / rate;
-  const bufferOffset = Math.max(0, offset);
+  const bufferOffset = Math.max(0, offset) / rate;
   sourceNode.start(audioCtx.currentTime + delay, bufferOffset);
   playStartedAt = audioCtx.currentTime;
   playOffset = offset;
@@ -1154,7 +1163,7 @@ setStartHereBtn.addEventListener('click', () => {
 
 function onSyncParamsChanged() {
   peakCache.clear();
-  updatePracticeRateHint(); // 원본 BPM이 바뀌면 연습 BPM 대비 배속도 달라진다
+  renderSpeedButtons(); // 원본 BPM이 바뀌면 속도 버튼에 표시되는 BPM도 달라진다
   saveState();
   if (mode === 'play') renderPlayWindow();
   draw();
@@ -1787,30 +1796,47 @@ for (const radio of playModeRadios) {
   });
 }
 
-function updatePracticeRateHint() {
-  const pct = Math.round(playbackRate() * 100);
-  practiceRateHint.textContent = pct === 100
-    ? `원래 속도 (오디오 ${+bpmInput.value || 120} BPM)`
-    : `원래 속도의 ${pct}% · 느리게/빠르게 하면 음정도 함께 변합니다`;
+// 연습 속도 버튼은 폴더에 실제로 있는 speed-N 파일에서 만든다.
+// 임의의 속도를 즉석에서 만들 수 없으니(그러려면 음정이 변하는 playbackRate뿐),
+// 미리 변환해둔 것만 고를 수 있게 하는 게 정직하고 헷갈리지 않는다.
+function renderSpeedButtons() {
+  speedButtonsEl.innerHTML = '';
+  // 100은 원본 재생이라 speed-100 파일이 있어도 쓰지 않는다(버튼 중복 방지).
+  const percents = [100, ...[...speedFiles.keys()].filter(p => p !== 100).sort((a, b) => b - a)];
+  for (const pct of percents) {
+    const btn = document.createElement('button');
+    const bpm = Math.round((+bpmInput.value || 120) * (pct / 100) * 10) / 10;
+    btn.textContent = pct === 100 ? `원래 속도 · ${bpm} BPM` : `${pct}% · ${bpm} BPM`;
+    btn.classList.toggle('active', pct === activeSpeed);
+    btn.onclick = () => selectSpeed(pct);
+    speedButtonsEl.appendChild(btn);
+  }
+  speedHint.textContent = speedFiles.size === 0
+    ? '느린 버전이 없습니다. stretch_audio.py로 미리 만들어 폴더에 넣으면(scores/곡이름/speed-80.wav) 음정 그대로 느리게 연습할 수 있습니다.'
+    : '음정은 그대로 유지됩니다(stretch_audio.py로 미리 변환해둔 파일 재생).';
 }
 
-function onPracticeBpmChanged() {
-  practiceBpmInput.value = clampBpm(+practiceBpmInput.value || (+bpmInput.value || 120));
-  updatePracticeRateHint();
-  saveState();
-  // 재생 중이면 새 배속으로 지금 마디부터 다시 시작한다. 준비박 대기 중에는
-  // 이미 예약된 시작 시각이 옛 배속 기준이라, 다시 거는 쪽이 항상 정확하다.
-  if (isPlaying && playbackSource === 'measurePlay') {
-    stopMeasurePlayback();
-    startMeasurePlayback();
+async function selectSpeed(pct) {
+  if (pct !== 100 && !speedBuffers.has(pct)) {
+    const file = speedFiles.get(pct);
+    if (!file) return;
+    speedHint.textContent = `${pct}% 음원 불러오는 중...`;
+    try {
+      ensureAudioCtx();
+      speedBuffers.set(pct, await audioCtx.decodeAudioData(await file.arrayBuffer()));
+    } catch (err) {
+      speedHint.textContent = `${pct}% 음원을 불러오지 못했습니다: ${err.message}`;
+      return;
+    }
   }
+  const wasPlaying = isPlaying && playbackSource === 'measurePlay';
+  if (wasPlaying) stopMeasurePlayback();
+  activeSpeed = pct;
+  renderSpeedButtons();
+  saveState();
+  // 속도를 바꾸면 재생 중이던 소스는 버려야 하므로 지금 마디부터 다시 시작한다.
+  if (wasPlaying) startMeasurePlayback();
 }
-practiceBpmInput.addEventListener('change', onPracticeBpmChanged);
-document.getElementById('practiceBpmMinus5').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() - 5); onPracticeBpmChanged(); };
-document.getElementById('practiceBpmMinus1').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() - 1); onPracticeBpmChanged(); };
-document.getElementById('practiceBpmPlus1').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() + 1); onPracticeBpmChanged(); };
-document.getElementById('practiceBpmPlus5').onclick = () => { practiceBpmInput.value = clampBpm(practiceBpm() + 5); onPracticeBpmChanged(); };
-document.getElementById('practiceBpmResetBtn').onclick = () => { practiceBpmInput.value = +bpmInput.value || 120; onPracticeBpmChanged(); };
 loopEnabledInput.addEventListener('change', saveState);
 
 // ===== 마디 기반 재생 시작/정지 + rAF 루프 =====
@@ -1946,8 +1972,7 @@ function setMode(m) {
     currentLineIndex = 0;
     windowStartLine = 0;
     displayMeasureIdx = 0;
-    if (!(+practiceBpmInput.value > 0)) practiceBpmInput.value = +bpmInput.value || 120;
-    updatePracticeRateHint();
+    renderSpeedButtons();
     for (const key of RANGE_KEYS) {
       const { start, end } = rangeInputs[key];
       start.max = measures.length;
@@ -1961,8 +1986,7 @@ function setMode(m) {
 // ===== 초기화 =====
 renderBeatIndicator();
 updateModeAvailability();
-practiceBpmInput.value = +bpmInput.value || 120;
-updatePracticeRateHint();
+renderSpeedButtons();
 setMode('annotate');
 </script>
 

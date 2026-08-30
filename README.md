@@ -66,12 +66,12 @@ Same measure-by-measure tab practice as score-player.html, but the measures foll
 3. **Mark measures**: identical to score-player.html.
 4. **Play**: the backing track drives everything — measures highlight and the 3-line window slides in time with the audio. Under each tab line the matching slice of the waveform is drawn, stretched to each measure's own width so the bar lines always line up with the audio. "전체화면 연습" (fullscreen practice) hides every setting and leaves just play/stop plus the tab and waveform, scaled up to the window.
 
-Practice speed is adjustable ("연습 BPM"), defaulting to the track's own BPM.
+Practice speed can be dropped to whatever slowed-down versions you prepared with `stretch_audio.py` (see below) — **the pitch stays put**, so the track is still in tune with your guitar. Each button shows the resulting BPM.
 
 #### Limitations
 
 - Repeat signs aren't recognized, same as score-player.html.
-- Slowing down or speeding up shifts the **pitch** as well — it uses `playbackRate`, and pitch-preserving time-stretching would need an external library, which this project deliberately avoids.
+- Only the speeds you pre-rendered are selectable — the browser can't stretch audio on the fly without shifting pitch.
 
 #### analyze_audio.py
 
@@ -85,6 +85,17 @@ python3 analyze_audio.py "scores/song/"   # writes scores/song/audio_meta.json
 ```
 
 The editor reads `audio_meta.json` when you load the folder and fills in the BPM (it won't overwrite settings you've already saved for that song — use the "분석값 적용" button for that). The **start point is deliberately not auto-detected**: estimating it kept landing a beat or two off, and it takes one click on the waveform to place exactly.
+
+#### stretch_audio.py
+
+Renders slowed-down copies of the track **without changing pitch**, so you can practice under tempo and still play in tune.
+
+```bash
+python3 stretch_audio.py "scores/song/"           # 70%, 80%, 90%
+python3 stretch_audio.py "scores/song/" 60 75     # pick your own
+```
+
+It writes `scores/song/speed-70.wav` etc. next to the original; the editor picks them up on the next folder load and turns them into practice-speed buttons. They're uncompressed WAV, so expect tens of MB per copy — `scores/` isn't in git anyway.
 
 ---
 
@@ -148,12 +159,12 @@ score-player.html과 같은 마디 단위 탭 연습이지만, 합성 클릭 대
 3. **마디 지정**: score-player.html과 동일합니다.
 4. **재생**: 배킹트랙이 모든 걸 이끕니다 — 오디오에 맞춰 마디가 하이라이트되고 3줄 창이 넘어갑니다. 각 탭 줄 아래에는 그 구간의 파형이 마디별 폭에 맞춰 그려져서 마디선과 파형이 항상 일치합니다. "전체화면 연습"을 누르면 설정 UI가 전부 사라지고 재생/정지 버튼과 탭·파형만 화면 가득 남습니다.
 
-연습 속도("연습 BPM")도 조절할 수 있고, 기본값은 그 트랙의 BPM입니다.
+연습 속도는 `stretch_audio.py`(아래 참고)로 미리 만들어둔 느린 버전 중에서 고를 수 있습니다 — **음정은 그대로 유지되므로** 기타 튜닝과 어긋나지 않습니다. 버튼마다 그 속도에서의 BPM이 표시됩니다.
 
 #### 제한사항
 
 - 반복 기호를 인식하지 않는 건 score-player.html과 동일합니다.
-- 속도를 바꾸면 **음정도 같이 변합니다** — `playbackRate`를 쓰기 때문이고, 음정을 유지하려면 외부 라이브러리가 필요해서 의도적으로 넣지 않았습니다.
+- 미리 변환해둔 속도만 고를 수 있습니다 — 브라우저에서 즉석으로 늘이면 음정이 변하기 때문입니다.
 
 #### analyze_audio.py
 
@@ -167,3 +178,14 @@ python3 analyze_audio.py "scores/곡이름/"   # scores/곡이름/audio_meta.jso
 ```
 
 폴더를 불러올 때 `audio_meta.json`을 읽어 BPM을 채웁니다(이미 저장해둔 설정이 있으면 덮어쓰지 않고, 그때는 "분석값 적용" 버튼을 누르면 됩니다). **시작점은 일부러 자동 추정하지 않습니다** — 추정값이 자꾸 한두 박씩 어긋났고, 파형을 한 번 클릭하면 정확히 찍히기 때문입니다.
+
+#### stretch_audio.py
+
+**음정은 그대로 두고** 속도만 늦춘 사본을 만들어줍니다. 느리게 연습해도 기타 튜닝과 맞습니다.
+
+```bash
+python3 stretch_audio.py "scores/곡이름/"          # 70%, 80%, 90%
+python3 stretch_audio.py "scores/곡이름/" 60 75    # 원하는 속도 지정
+```
+
+원본 옆에 `scores/곡이름/speed-70.wav` 같은 파일이 생기고, 다음에 폴더를 불러오면 자동으로 연습 속도 버튼이 됩니다. 무압축 WAV라 사본 하나에 수십 MB가 되지만 `scores/`는 어차피 git에 올라가지 않습니다.
