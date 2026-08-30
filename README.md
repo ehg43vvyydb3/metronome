@@ -1,6 +1,6 @@
 # metronome
 
-> Standalone practice tools you open straight in a browser — a simple metronome, one that highlights measures on a guitar tab PDF as it plays, and one that does the same in sync with a backing track.
+> Standalone practice tools you open straight in a browser — a simple metronome, a rhythm-pattern builder, one that highlights measures on a guitar tab PDF as it plays, and one that does the same in sync with a backing track.
 
 [English](#english) · [한국어](#한국어)
 
@@ -18,6 +18,14 @@ A basic metronome.
 - Beats per measure, subdivision (quarter/eighth/sixteenth notes)
 - Click a beat to toggle its accent on/off
 - Save/load presets (localStorage)
+
+### rhythm.html
+
+Write out a rhythm and hear it — for drilling a pattern you can't yet read at sight.
+
+- Set BPM, time signature (n/2, n/4, n/8) and how many measures
+- Fill measures from a palette of notes and rests (whole through 16th, dotted optional); ties carry over into the next measure
+- Play once or on a loop, with count-in measures and an optional metronome click over the top
 
 ### score-player.html
 
@@ -63,8 +71,9 @@ Same measure-by-measure tab practice as score-player.html, but the measures foll
 
 1. **Prepare the folder**: put the page images *and* the audio file in the same folder — `scores/<song>/page-N.png` (from `pdf_to_png.py`, as above) plus any audio file (`.mp3`, `.wav`, `.m4a`, …) copied in from wherever you keep it. One "load folder" then picks up both at once.
 2. **Audio sync**: set the BPM and click the waveform to mark the point where measure 1 actually begins. If the recording already has a count-in, set "준비박 개수" (count-in beats) to how many beats it holds — the start point still marks the *first real beat*, after the count-in. Optionally pre-analyze the BPM (see below). The waveform zooms in and out for precise placement.
+   - If the count-in needs more room than there is before the start point, playback simply starts that much later — the audio file is never padded or rewritten.
 3. **Mark measures**: identical to score-player.html.
-4. **Play**: the backing track drives everything — measures highlight and the 3-line window slides in time with the audio. Under each tab line the matching slice of the waveform is drawn, stretched to each measure's own width so the bar lines always line up with the audio. "전체화면 연습" (fullscreen practice) hides every setting and leaves just play/stop plus the tab and waveform, scaled up to the window.
+4. **Play**: the backing track drives everything — measures highlight and the 3-line window slides in time with the audio. Under each tab line the matching slice of the waveform is drawn, stretched to each measure's own width so the bar lines always line up with the audio. Section looping and partial ranges work as in score-player.html, and Space toggles play/stop. Past the last measure the track keeps playing to the end of the file, so the song's ending isn't cut off (unless looping is on, which restarts right away). "전체화면 연습" (fullscreen practice) hides every setting and leaves just play/stop plus the tab and waveform, scaled up to the window.
 
 Practice speed can be dropped to whatever slowed-down versions you prepared with `stretch_audio.py` (see below) — **the pitch stays put**, so the track is still in tune with your guitar. Each button shows the resulting BPM.
 
@@ -112,6 +121,14 @@ It writes `scores/song/speed-70.mp3` etc. next to the original; the editor picks
 - 박마다 클릭해서 강세 on/off
 - 프리셋 저장/불러오기 (localStorage)
 
+### rhythm.html
+
+리듬을 직접 적어 넣고 들어보는 도구 — 눈으로 바로 안 읽히는 패턴을 익힐 때 씁니다.
+
+- BPM, 박자표(n/2, n/4, n/8), 마디 수 설정
+- 음표·쉼표 팔레트(온음표~16분음표, 점음표 옵션)로 마디를 채우고, 붙임줄은 다음 마디까지 이어집니다
+- 1번 재생 또는 반복 재생, 준비마디와 메트로놈 클릭을 같이 켤 수 있습니다
+
 ### score-player.html
 
 기타 탭 악보(PDF)를 넘기면서 마디마다 하이라이트해주는 연습용 메트로놈.
@@ -156,8 +173,9 @@ score-player.html과 같은 마디 단위 탭 연습이지만, 합성 클릭 대
 
 1. **폴더 준비**: 페이지 이미지와 오디오 파일을 같은 폴더에 둡니다 — `scores/곡이름/page-N.png`(위의 `pdf_to_png.py`로 변환) + 오디오 파일(`.mp3`, `.wav`, `.m4a` 등)을 원본에서 복사해 넣기만 하면 됩니다. "폴더 불러오기" 한 번으로 둘 다 읽어옵니다.
 2. **오디오 싱크**: BPM을 맞추고, 파형을 클릭해 마디 1이 실제로 시작하는 지점을 찍습니다. 녹음에 이미 준비박이 들어있다면 "준비박 개수"에 그 박 수를 넣으세요 — 시작점은 준비박이 *끝난 뒤* 진짜 첫 박을 가리킵니다. BPM은 미리 분석해둘 수도 있습니다(아래 참고). 파형은 확대/축소해서 정확히 찍을 수 있습니다.
+   - 시작점 앞에 준비박이 들어갈 공간이 모자라면 그만큼 재생을 늦게 시작할 뿐, 오디오 파일을 손대거나 무음을 덧붙이지 않습니다.
 3. **마디 지정**: score-player.html과 동일합니다.
-4. **재생**: 배킹트랙이 모든 걸 이끕니다 — 오디오에 맞춰 마디가 하이라이트되고 3줄 창이 넘어갑니다. 각 탭 줄 아래에는 그 구간의 파형이 마디별 폭에 맞춰 그려져서 마디선과 파형이 항상 일치합니다. "전체화면 연습"을 누르면 설정 UI가 전부 사라지고 재생/정지 버튼과 탭·파형만 화면 가득 남습니다.
+4. **재생**: 배킹트랙이 모든 걸 이끕니다 — 오디오에 맞춰 마디가 하이라이트되고 3줄 창이 넘어갑니다. 각 탭 줄 아래에는 그 구간의 파형이 마디별 폭에 맞춰 그려져서 마디선과 파형이 항상 일치합니다. 구간 반복·일부 재생은 score-player.html과 같고, 스페이스바로 재생/정지합니다. 마지막 마디를 지나도 파일 끝까지 계속 재생해서 곡의 끝맺음이 잘리지 않습니다(구간 반복이 켜져 있으면 바로 처음으로 되돌아갑니다). "전체화면 연습"을 누르면 설정 UI가 전부 사라지고 재생/정지 버튼과 탭·파형만 화면 가득 남습니다.
 
 연습 속도는 `stretch_audio.py`(아래 참고)로 미리 만들어둔 느린 버전 중에서 고를 수 있습니다 — **음정은 그대로 유지되므로** 기타 튜닝과 어긋나지 않습니다. 버튼마다 그 속도에서의 BPM이 표시됩니다.
 
