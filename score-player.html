@@ -21,6 +21,21 @@
   #playCanvas { cursor: pointer; }
   #modeButtons button.active { background: #333; color: #fff; }
   .hidden { display: none; }
+  .floatingCtrl {
+    position: absolute;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    z-index: 10;
+  }
+  .floatingCtrl button {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: #e74c3c;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
   .hint { color: #666; font-size: 13px; }
   #beatIndicator {
     display: flex;
@@ -117,22 +132,20 @@
     드래그로 한 줄(TAB 라인) 영역을 지정하세요. 줄의 시작/끝은 자동으로 잡히므로,
     그 사이 마디를 나누는 경계만 왼쪽부터 순서대로 클릭하면 됩니다 (예: 4마디면 드래그 + 클릭 3번).
     이미 찍은 점 근처를 다시 클릭하면 그 점이 삭제됩니다.
-    박스 모서리의 파란 점을 드래그하면 박스 크기를 조정할 수 있습니다.
-    편집 중인 박스 바깥에서 다시 드래그하면 지금 박스는 초안(보라색)으로 자동 저장되고 새 박스가 시작됩니다.
-    이 페이지에 여러 줄을 그린 뒤 "페이지 확정"으로 한 번에 저장하세요.
-    줄(보라색 초안 또는 초록 확정)을 클릭하면 선택되고(주황), Backspace 또는 "박스 취소" 버튼으로 삭제할 수 있습니다.
+    박스 모서리 점을 드래그하면 박스 크기를 조정할 수 있습니다.
+    편집 중인 박스 바깥에서 다시 드래그하면 지금 박스가 저장되고 새 박스가 시작됩니다.
+    줄을 클릭하면 선택되고(주황), 박스 아래 "박스 취소" 버튼으로 삭제할 수 있습니다.
   </p>
   <div>
     <button id="prevPage">이전 페이지</button>
     <span id="pageInfo">페이지 -/-</span>
     <button id="nextPage">다음 페이지</button>
   </div>
+  <div style="position:relative; display:inline-block">
   <canvas id="annotateCanvas" width="760" height="400"></canvas>
+  <div id="floatingActions" class="hidden floatingCtrl"><button id="cancelBoxBtn2">박스 취소</button></div>
+</div>
   <div>
-    <button id="cancelBoxBtn">박스 취소</button>
-    <button id="undoPointBtn">마지막 점 취소</button>
-    <button id="undoLastDraftBtn">마지막 초안 삭제</button>
-    <button id="confirmPageBtn">페이지 확정</button>
     <button id="resetAllBtn">전체 초기화</button>
   </div>
   <div id="lineCount" class="hint"></div>
@@ -197,11 +210,11 @@ let currentAnnotatePage = 1;
 let annotateScale = 1;
 
 let lines = [];
-let pageLines = [];
 let pendingBox = null;
 let pendingBarX = [];
 let dragStart = null;
 let resizeHandle = null;
+let resizeSelected = null;
 let selectedLineIdx = null;
 let selectedLineSource = null;
 
@@ -223,6 +236,15 @@ function hitHandle(box, mx, my) {
     if (Math.hypot(mx - pt.x, my - pt.y) <= HANDLE_R + 3) return name;
   }
   return null;
+}
+
+function sortLines() {
+  lines.sort((a, b) => a.page - b.page || a.box.y - b.box.y || a.box.x - b.box.x);
+}
+
+function getSelectedLine() {
+  if (selectedLineIdx === null) return null;
+  return lines[selectedLineIdx];
 }
 
 let measures = [];
@@ -380,8 +402,7 @@ function totalMeasures() {
 }
 
 function updateLineCount() {
-  const draftInfo = pageLines.length > 0 ? ` · 이 페이지 초안: ${pageLines.length}줄 (미확정)` : '';
-  lineCountEl.textContent = `확정된 줄: ${lines.length} / 마디: ${totalMeasures()}${draftInfo}`;
+  lineCountEl.textContent = `줄: ${lines.length} / 마디: ${totalMeasures()}`;
 }
 
 function loadImage(file) {
@@ -415,12 +436,12 @@ async function loadPagesFromFiles(files, name) {
   currentAnnotatePage = pageNumbers[0];
   pendingBox = null;
   pendingBarX = [];
-  pageLines = [];
   selectedLineIdx = null;
 
   const saved = loadState();
   if (saved) {
     lines = saved.lines || [];
+    sortLines();
     bpmInput.value = saved.bpm;
     beatsPerMeasureInput.value = saved.beatsPerMeasure;
     subdivisionSelect.value = saved.subdivision;
@@ -710,19 +731,24 @@ function drawLineBox(ctx, line, idx, isSelected, baseColor, baseFill, label) {
   ctx.fillStyle = isSelected ? 'rgba(230,140,0,0.7)' : baseFill;
   ctx.font = '12px sans-serif';
   ctx.fillText(`${label}${idx + 1} (${line.barX.length - 1}마디)`, x + 2, y - 4 < 10 ? y + 12 : y - 4);
+
+  if (isSelected) {
+    ctx.fillStyle = 'orange';
+    Object.values(getHandles({ x, y, w, h })).forEach(pt => {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, HANDLE_R, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
 }
 
 function drawAnnotateOverlays() {
   const ctx = annotateCanvas.getContext('2d');
+  let localIdx = 0;
   lines.forEach((line, idx) => {
     if (line.page !== currentAnnotatePage) return;
     const isSelected = selectedLineSource === 'confirmed' && idx === selectedLineIdx;
-    drawLineBox(ctx, line, idx, isSelected, 'green', 'rgba(0,150,0,0.5)', '#');
-  });
-
-  pageLines.forEach((line, idx) => {
-    const isSelected = selectedLineSource === 'draft' && idx === selectedLineIdx;
-    drawLineBox(ctx, line, idx, isSelected, 'purple', 'rgba(140,0,150,0.6)', '초안#');
+    drawLineBox(ctx, line, localIdx++, isSelected, 'green', 'rgba(0,150,0,0.5)', '#');
   });
 
   if (pendingBox) {
@@ -759,29 +785,62 @@ annotateCanvas.onmousedown = (e) => {
       return;
     }
   }
+  if (selectedLineIdx !== null) {
+    const line = getSelectedLine();
+    if (line && line.page === currentAnnotatePage) {
+      const sx = line.box.x * annotateScale, sy = line.box.y * annotateScale;
+      const sw = line.box.w * annotateScale, sh = line.box.h * annotateScale;
+      const h = hitHandle({ x: sx, y: sy, w: sw, h: sh }, e.offsetX, e.offsetY);
+      if (h) {
+        resizeSelected = h;
+        dragStart = null;
+        return;
+      }
+    }
+  }
   dragStart = { x: e.offsetX, y: e.offsetY };
 };
 
 annotateCanvas.onmousemove = (e) => {
-  if (!resizeHandle || !pendingBox) return;
-  const mx = e.offsetX, my = e.offsetY;
-  let x = pendingBox.x, y = pendingBox.y;
-  let x2 = pendingBox.x + pendingBox.w, y2 = pendingBox.y + pendingBox.h;
-  if (resizeHandle === 'tl') { x = mx; y = my; }
-  else if (resizeHandle === 'tr') { x2 = mx; y = my; }
-  else if (resizeHandle === 'bl') { x = mx; y2 = my; }
-  else if (resizeHandle === 'br') { x2 = mx; y2 = my; }
-  pendingBox = {
-    x: Math.min(x, x2),
-    y: Math.min(y, y2),
-    w: Math.abs(x2 - x),
-    h: Math.abs(y2 - y)
-  };
-  drawAnnotateOverlaysFresh();
+  if (resizeHandle && pendingBox) {
+    const mx = e.offsetX, my = e.offsetY;
+    let x = pendingBox.x, y = pendingBox.y;
+    let x2 = pendingBox.x + pendingBox.w, y2 = pendingBox.y + pendingBox.h;
+    if (resizeHandle === 'tl') { x = mx; y = my; }
+    else if (resizeHandle === 'tr') { x2 = mx; y = my; }
+    else if (resizeHandle === 'bl') { x = mx; y2 = my; }
+    else if (resizeHandle === 'br') { x2 = mx; y2 = my; }
+    pendingBox = {
+      x: Math.min(x, x2),
+      y: Math.min(y, y2),
+      w: Math.abs(x2 - x),
+      h: Math.abs(y2 - y)
+    };
+    drawAnnotateOverlaysFresh();
+    return;
+  }
+  if (resizeSelected && selectedLineIdx !== null) {
+    const line = getSelectedLine();
+    if (!line || line.page !== currentAnnotatePage) return;
+    const mx = e.offsetX, my = e.offsetY;
+    let x = line.box.x * annotateScale, y = line.box.y * annotateScale;
+    let x2 = x + line.box.w * annotateScale, y2 = y + line.box.h * annotateScale;
+    if (resizeSelected === 'tl') { x = mx; y = my; }
+    else if (resizeSelected === 'tr') { x2 = mx; y = my; }
+    else if (resizeSelected === 'bl') { x = mx; y2 = my; }
+    else if (resizeSelected === 'br') { x2 = mx; y2 = my; }
+    line.box.x = Math.min(x, x2) / annotateScale;
+    line.box.y = Math.min(y, y2) / annotateScale;
+    line.box.w = Math.abs(x2 - x) / annotateScale;
+    line.box.h = Math.abs(y2 - y) / annotateScale;
+    line.barX = line.barX.map(bx => Math.min(line.box.x + line.box.w, Math.max(line.box.x, bx)));
+    drawAnnotateOverlaysFresh();
+  }
 };
 
 annotateCanvas.onmouseleave = () => {
   resizeHandle = null;
+  resizeSelected = null;
   dragStart = null;
 };
 
@@ -796,13 +855,37 @@ annotateCanvas.onmouseup = (e) => {
     resizeHandle = null;
     return;
   }
+  if (resizeSelected) {
+    resizeSelected = null;
+    if (selectedLineSource === 'confirmed') saveState();
+    return;
+  }
   if (!dragStart) return;
   const dx = e.offsetX - dragStart.x, dy = e.offsetY - dragStart.y;
   const moved = Math.max(Math.abs(dx), Math.abs(dy));
 
   if (moved < 6) {
     if (pendingBox) {
-      handleAnnotateClick(e.offsetX);
+      if (pointInPendingBox(e.offsetX, e.offsetY)) {
+        handleAnnotateClick(e.offsetX);
+      } else {
+        addPendingAsDraft();
+      }
+    } else if (selectedLineIdx !== null) {
+      const line = getSelectedLine();
+      const nearIdx = line && line.page === currentAnnotatePage ? line.barX.findIndex(bx => Math.abs(bx * annotateScale - e.offsetX) < 8) : -1;
+      if (nearIdx >= 0) {
+        line.barX.splice(nearIdx, 1);
+        if (selectedLineSource === 'confirmed') saveState();
+        drawAnnotateOverlaysFresh();
+      } else if (boxHit(line, e.offsetX, e.offsetY)) {
+        line.barX.push(e.offsetX / annotateScale);
+        line.barX.sort((a, b) => a - b);
+        if (selectedLineSource === 'confirmed') saveState();
+        drawAnnotateOverlaysFresh();
+      } else {
+        selectLineAt(e.offsetX, e.offsetY);
+      }
     } else {
       selectLineAt(e.offsetX, e.offsetY);
     }
@@ -824,6 +907,29 @@ annotateCanvas.onmouseup = (e) => {
 
 function drawAnnotateOverlaysFresh() {
   renderAnnotatePage(currentAnnotatePage);
+  updateFloatingActions();
+}
+
+function updateFloatingActions() {
+  const fa = document.getElementById('floatingActions');
+  const visible = !!(pendingBox || (selectedLineIdx !== null));
+  fa.classList.toggle('hidden', !visible);
+  if (!visible) return;
+
+  let bx, by, bw, bh;
+  if (pendingBox) {
+    bx = pendingBox.x; by = pendingBox.y; bw = pendingBox.w; bh = pendingBox.h;
+  } else if (selectedLineIdx !== null) {
+    const line = getSelectedLine();
+    if (!line) return;
+    bx = line.box.x * annotateScale;
+    by = line.box.y * annotateScale;
+    bw = line.box.w * annotateScale;
+    bh = line.box.h * annotateScale;
+  } else return;
+
+  fa.style.left = (bx + bw / 2) + 'px';
+  fa.style.top = (by + bh + 4) + 'px';
 }
 
 function handleAnnotateClick(x) {
@@ -850,13 +956,10 @@ function selectLineAt(mx, my) {
     if (line.page !== currentAnnotatePage) return;
     if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'confirmed'; }
   });
-  pageLines.forEach((line, idx) => {
-    if (boxHit(line, mx, my)) { selectedLineIdx = idx; selectedLineSource = 'draft'; }
-  });
   drawAnnotateOverlaysFresh();
 }
 
-document.getElementById('cancelBoxBtn').onclick = () => {
+document.getElementById('cancelBoxBtn2').onclick = () => {
   if (pendingBox) {
     pendingBox = null;
     pendingBarX = [];
@@ -866,15 +969,10 @@ document.getElementById('cancelBoxBtn').onclick = () => {
   }
 };
 
-document.getElementById('undoPointBtn').onclick = () => {
-  pendingBarX.pop();
-  drawAnnotateOverlaysFresh();
-};
-
 function addPendingAsDraft() {
   if (!pendingBox) return false;
   const fullBarX = [pendingBox.x, pendingBox.x + pendingBox.w, ...pendingBarX].sort((a, b) => a - b);
-  pageLines.push({
+  lines.push({
     page: currentAnnotatePage,
     box: {
       x: pendingBox.x / annotateScale,
@@ -884,55 +982,34 @@ function addPendingAsDraft() {
     },
     barX: fullBarX.map(x => x / annotateScale)
   });
+  sortLines();
   pendingBox = null;
   pendingBarX = [];
+  saveState();
   updateLineCount();
   return true;
 }
 
-document.getElementById('undoLastDraftBtn').onclick = () => {
-  pageLines.pop();
-  if (selectedLineSource === 'draft') { selectedLineIdx = null; selectedLineSource = null; }
-  updateLineCount();
-  drawAnnotateOverlaysFresh();
-};
-
-document.getElementById('confirmPageBtn').onclick = () => {
-  addPendingAsDraft();
-  if (pageLines.length === 0) {
-    alert('확정할 줄이 없습니다. 먼저 드래그로 줄을 그려주세요.');
-    return;
-  }
-  lines.push(...pageLines);
-  pageLines = [];
-  selectedLineIdx = null;
-  selectedLineSource = null;
-  updateLineCount();
-  saveState();
-  drawAnnotateOverlaysFresh();
-};
-
 document.getElementById('resetAllBtn').onclick = () => {
   if (!confirm('전체 마디 지정을 초기화할까요?')) return;
   lines = [];
-  pageLines = [];
   pendingBox = null;
   pendingBarX = [];
   selectedLineIdx = null;
   selectedLineSource = null;
+  resizeSelected = null;
   updateLineCount();
   saveState();
   drawAnnotateOverlaysFresh();
 };
 
 function goToPage(newPage) {
-  if (pageLines.length > 0 && !confirm('확정하지 않은 초안 줄이 있습니다. 페이지를 이동하면 사라집니다. 계속할까요?')) return;
   currentAnnotatePage = newPage;
   pendingBox = null;
   pendingBarX = [];
-  pageLines = [];
   selectedLineIdx = null;
   selectedLineSource = null;
+  resizeSelected = null;
   updateLineCount();
   renderAnnotatePage(currentAnnotatePage);
 }
@@ -950,14 +1027,11 @@ document.getElementById('nextPage').onclick = () => {
 
 function deleteSelectedLine() {
   if (selectedLineIdx === null) return;
-  if (selectedLineSource === 'confirmed') {
-    lines.splice(selectedLineIdx, 1);
-    saveState();
-  } else if (selectedLineSource === 'draft') {
-    pageLines.splice(selectedLineIdx, 1);
-  }
+  lines.splice(selectedLineIdx, 1);
+  saveState();
   selectedLineIdx = null;
   selectedLineSource = null;
+  resizeSelected = null;
   updateLineCount();
   drawAnnotateOverlaysFresh();
 }
