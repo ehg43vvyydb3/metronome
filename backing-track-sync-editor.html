@@ -186,6 +186,20 @@
   #speedSection{flex:1 1 220px; min-width:0;}
   #playModeRows{flex:2 1 400px; min-width:0;}
   .modeRow{margin-bottom:4px; white-space:nowrap;}
+  /* 창이 넓을 때 재생 탭 내용(속도/구간 반복/탭 악보)이 왼쪽에 쏠리지 않도록
+     패널 자체를 가운데 정렬한다. 탭 악보 캔버스가 760px이므로 여유를 두고 840px로 제한. */
+  /* 재생 탭 안의 컨텐츠만 가운데 정렬, 패널 테두리는 화면 전체 폭 유지 */
+  #playCanvas{
+    max-width: 840px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  /* 위쪽 컨트롤(속도/구간/시작버튼)도 가운데로 보내고 싶으면 아래도 추가 */
+  #playSettings, #beatBoxes, #playPanel > .row{
+    max-width: 840px;
+    margin-left: auto;
+    margin-right: auto;
+  }
   input[type=range]{width:160px; vertical-align:middle;}
 
   body.practice-mode > *:not(#playPanel){display:none !important;}
@@ -349,6 +363,22 @@
         <input type="number" data-range-end="once3" min="1" value="1" class="narrow">
         <button data-set-end="once3">현재→끝</button>
       </div>
+      <div class="modeRow">
+        <label><input type="radio" name="playMode" value="once4"> 일부 재생 4</label>
+        <input type="number" data-range-start="once4" min="1" value="1" class="narrow">
+        <button data-set-start="once4">현재→시작</button>
+        ~
+        <input type="number" data-range-end="once4" min="1" value="1" class="narrow">
+        <button data-set-end="once4">현재→끝</button>
+      </div>
+      <div class="modeRow">
+        <label><input type="radio" name="playMode" value="once5"> 일부 재생 5</label>
+        <input type="number" data-range-start="once5" min="1" value="1" class="narrow">
+        <button data-set-start="once5">현재→시작</button>
+        ~
+        <input type="number" data-range-end="once5" min="1" value="1" class="narrow">
+        <button data-set-end="once5">현재→끝</button>
+      </div>
     </div>
   </div>
   <div class="row">
@@ -490,7 +520,7 @@ const beatBoxesEl = document.getElementById('beatBoxes');
 const speedButtonsEl = document.getElementById('speedButtons');
 const speedHint = document.getElementById('speedHint');
 
-const RANGE_KEYS = ['once1', 'once2', 'once3'];
+const RANGE_KEYS = ['once1', 'once2', 'once3', 'once4', 'once5'];
 const rangeInputs = {};
 for (const key of RANGE_KEYS) {
   rangeInputs[key] = {
@@ -926,6 +956,11 @@ async function loadProjectFromFiles(song, name) {
     volumeInput.value = saved.volume ?? 100;
     // 저장된 속도라도 그 speed-N 파일이 폴더에 없으면 원래 속도로 되돌린다.
     activeSpeed = speedFiles.has(saved.practiceSpeed) ? saved.practiceSpeed : 100;
+    // 값만 세팅해서는 재생에 반영되지 않는다(실제 느린 오디오 버퍼가 아직 디코딩 안 됨).
+    // 여기서 미리 디코딩해둬야 폴더를 열자마자 저장된 속도로 재생된다.
+    if (activeSpeed !== 100 && !(await ensureSpeedBuffer(activeSpeed))) {
+      activeSpeed = 100; // 디코딩 실패 시(파일 손상 등) 원곡 속도로 안전하게 폴백
+    }
   } else {
     bpmInput.value = detectedMeta ? detectedMeta.bpm : 120;
     beatsPerBarInput.value = 4;
@@ -1929,19 +1964,26 @@ function renderSpeedButtons() {
     : '음정은 그대로 유지됩니다(stretch_audio.py로 미리 변환해둔 파일 재생).';
 }
 
-async function selectSpeed(pct) {
-  if (pct !== 100 && !speedBuffers.has(pct)) {
-    const file = speedFiles.get(pct);
-    if (!file) return;
-    speedHint.textContent = `${pct}% 음원 불러오는 중...`;
-    try {
-      ensureAudioCtx();
-      speedBuffers.set(pct, await audioCtx.decodeAudioData(await file.arrayBuffer()));
-    } catch (err) {
-      speedHint.textContent = `${pct}% 음원을 불러오지 못했습니다: ${err.message}`;
-      return;
-    }
+// pct(100 제외)에 해당하는 느린 버전 오디오를 디코딩해서 speedBuffers에 캐시한다.
+// 이미 캐시돼 있으면 즉시 true. 파일이 없거나 디코딩에 실패하면 false.
+async function ensureSpeedBuffer(pct) {
+  if (pct === 100) return true;
+  if (speedBuffers.has(pct)) return true;
+  const file = speedFiles.get(pct);
+  if (!file) return false;
+  speedHint.textContent = `${pct}% 음원 불러오는 중...`;
+  try {
+    ensureAudioCtx();
+    speedBuffers.set(pct, await audioCtx.decodeAudioData(await file.arrayBuffer()));
+    return true;
+  } catch (err) {
+    speedHint.textContent = `${pct}% 음원을 불러오지 못했습니다: ${err.message}`;
+    return false;
   }
+}
+
+async function selectSpeed(pct) {
+  if (pct !== 100 && !(await ensureSpeedBuffer(pct))) return;
   const wasPlaying = isPlaying && playbackSource === 'measurePlay';
   if (wasPlaying) stopMeasurePlayback();
   activeSpeed = pct;

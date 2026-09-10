@@ -190,6 +190,22 @@
       <input type="number" data-range-end="once3" min="1" value="1" style="width:50px">
       <button data-set-end="once3">현재→끝</button>
     </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once4"> 일부 재생 4</label>
+      <input type="number" data-range-start="once4" min="1" value="1" style="width:50px">
+      <button data-set-start="once4">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once4" min="1" value="1" style="width:50px">
+      <button data-set-end="once4">현재→끝</button>
+    </div>
+    <div class="modeRow">
+      <label><input type="radio" name="playMode" value="once5"> 일부 재생 5</label>
+      <input type="number" data-range-start="once5" min="1" value="1" style="width:50px">
+      <button data-set-start="once5">현재→시작</button>
+      ~
+      <input type="number" data-range-end="once5" min="1" value="1" style="width:50px">
+      <button data-set-end="once5">현재→끝</button>
+    </div>
   </div>
   <span id="beatIndicator"></span>
   <canvas id="playCanvas" width="760" height="400"></canvas>
@@ -269,7 +285,7 @@ const measureTotalEl = document.getElementById('measureTotal');
 const loopEnabledInput = document.getElementById('loopEnabled');
 loopEnabledInput.addEventListener('change', saveState);
 
-const RANGE_KEYS = ['once1', 'once2', 'once3'];
+const RANGE_KEYS = ['once1', 'once2', 'once3', 'once4', 'once5'];
 const rangeInputs = {};
 for (const key of RANGE_KEYS) {
   rangeInputs[key] = {
