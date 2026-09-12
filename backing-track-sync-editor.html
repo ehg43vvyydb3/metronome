@@ -5,6 +5,7 @@
 <title>배킹트랙 싱크 플레이어</title>
 <style>
   :root{
+    --layout-width: 960px;
     --bg:#15171c;
     --panel:#1d2027;
     --line:#2a2e38;
@@ -18,11 +19,12 @@
   }
   *{box-sizing:border-box;}
   body{
-    margin:0;
+    margin:0 auto;
     background:var(--bg);
     color:var(--text);
     font-family:-apple-system,'Segoe UI',sans-serif;
     padding:16px;
+    max-width: var(--layout-width);
   }
   h1{
     font-size:16px;
@@ -69,7 +71,7 @@
     font-size:13px;
     width:88px;
   }
-  input.narrow{width:50px; padding:5px 6px;}
+  input.narrow{width:70px; padding:5px 6px;}
   button{
     background:#262b35;
     border:1px solid var(--line);
@@ -202,9 +204,13 @@
   }
   input[type=range]{width:160px; vertical-align:middle;}
 
+  body.practice-mode{max-width: none; margin: 0;}
   body.practice-mode > *:not(#playPanel){display:none !important;}
   body.practice-mode #playPanel .practiceHide{display:none !important;}
   body.practice-mode #playPanel{margin:0; padding:0;}
+  body.practice-mode #playCanvas,
+  body.practice-mode #beatBoxes,
+  body.practice-mode #playPanel > .row{max-width: none; margin-left: 0; margin-right: 0;}
   #exitPracticeBtn{position:fixed; top:10px; right:10px; z-index:10;}
 </style>
 </head>
@@ -2087,8 +2093,41 @@ resetToStartBtn.onclick = () => {
 // ===== 전체화면 연습 모드 =====
 // 나머지 UI 숨김은 CSS(body.practice-mode 규칙)가 전담하고, 여기서는
 // body 클래스 토글 + 전체화면 API + 캔버스 폭 재계산만 담당한다.
+function computeOptimalPracticeWidth() {
+  const margin = 24;
+  const maxByWidth = window.innerWidth - margin;
+
+  const rowEls = document.querySelectorAll('#playPanel > .row');
+  let rowHeight = 0;
+  for (const el of rowEls) rowHeight += el.getBoundingClientRect().height;
+  const chromeHeight =
+    rowHeight +
+    (beatBoxesEl ? beatBoxesEl.getBoundingClientRect().height : 0) +
+    parseFloat(getComputedStyle(document.body).paddingTop) +
+    parseFloat(getComputedStyle(document.body).paddingBottom) +
+    24;
+
+  const availableHeight = Math.max(200, window.innerHeight - chromeHeight);
+
+  const prevWidth = playCanvasWidth;
+  const w1 = 100, w2 = 1000;
+  playCanvasWidth = w1;
+  const h1 = computeLineInfos(windowStartLine, 3).totalHeight;
+  playCanvasWidth = w2;
+  const h2 = computeLineInfos(windowStartLine, 3).totalHeight;
+  playCanvasWidth = prevWidth;
+
+  const slope = (h2 - h1) / (w2 - w1);
+  const intercept = h1 - slope * w1;
+
+  const maxByHeight = slope > 0
+    ? Math.floor((availableHeight - intercept) / slope)
+    : maxByWidth;
+  return Math.max(320, Math.min(maxByWidth, maxByHeight, 2000));
+}
+
 function updatePlayCanvasWidth() {
-  playCanvasWidth = practiceMode ? Math.max(320, Math.min(window.innerWidth - 24, 2000)) : 760;
+  playCanvasWidth = practiceMode ? computeOptimalPracticeWidth() : 760;
   if (mode === 'play') renderPlayWindow();
 }
 function enterPracticeFullscreen() {
