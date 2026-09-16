@@ -295,13 +295,15 @@ for (const key of RANGE_KEYS) {
   document.querySelector(`[data-set-start="${key}"]`).onclick = () => {
     rangeInputs[key].start.value = displayMeasureIdx + 1;
     saveState();
+    if (mode === 'play') renderPlayWindow();
   };
   document.querySelector(`[data-set-end="${key}"]`).onclick = () => {
     rangeInputs[key].end.value = displayMeasureIdx + 1;
     saveState();
+    if (mode === 'play') renderPlayWindow();
   };
-  rangeInputs[key].start.addEventListener('change', saveState);
-  rangeInputs[key].end.addEventListener('change', saveState);
+  rangeInputs[key].start.addEventListener('change', () => { saveState(); if (mode === 'play') renderPlayWindow(); });
+  rangeInputs[key].end.addEventListener('change', () => { saveState(); if (mode === 'play') renderPlayWindow(); });
 }
 
 const playModeRadios = Array.from(document.querySelectorAll('input[name="playMode"]'));
@@ -1068,10 +1070,10 @@ function computeLineInfos(startLine, count) {
   const gap = 14;
   let y = 0;
   const infos = [];
-  windowLines.forEach(line => {
+  windowLines.forEach((line, idx) => {
     const scaleFactor = CANVAS_WIDTH / line.box.w;
     const dh = line.box.h * scaleFactor;
-    infos.push({ line, y, dh, scaleFactor });
+    infos.push({ line, globalLineIdx: startLine + idx, y, dh, scaleFactor });
     y += dh + gap;
   });
   let totalHeight = Math.max(1, y - gap);
@@ -1092,6 +1094,20 @@ function drawLineInfosToCanvas(ctx, infos) {
       info.line.box.x, info.line.box.y, info.line.box.w, info.line.box.h,
       0, info.y, CANVAS_WIDTH, info.dh
     );
+    drawDisabledMeasureOverlay(ctx, info);
+  });
+}
+
+function drawDisabledMeasureOverlay(ctx, info) {
+  if (getPlayMode() === 'all') return;
+  const { start0, end0 } = getLoopBounds();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  measures.forEach((m, gi) => {
+    if (m.lineIndex !== info.globalLineIdx) return;
+    if (gi >= start0 && gi <= end0) return;
+    const localX0 = (m.x0 - info.line.box.x) * info.scaleFactor;
+    const localX1 = (m.x1 - info.line.box.x) * info.scaleFactor;
+    ctx.fillRect(localX0, info.y, localX1 - localX0, info.dh);
   });
 }
 
