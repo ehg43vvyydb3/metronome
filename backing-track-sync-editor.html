@@ -188,6 +188,11 @@
   #speedSection{flex:1 1 220px; min-width:0;}
   #playModeRows{flex:2 1 400px; min-width:0;}
   .modeRow{margin-bottom:4px; white-space:nowrap;}
+  /* "전체 재생"과 "일부 재생 N"은 글자 폭이 달라서, 라디오 칸 폭을 고정해야
+     뒤따르는 준비박·반복 체크박스가 줄마다 같은 세로선에 맞춰진다. */
+  .modeRow > label{display:inline-block; vertical-align:middle;}
+  .modeRow > label:first-child{width:84px;}
+  .modeRow input[type=radio], .modeRow input[type=checkbox]{vertical-align:middle; margin:0 4px 0 0;}
   /* 창이 넓을 때 재생 탭 내용(속도/구간 반복/탭 악보)이 왼쪽에 쏠리지 않도록
      패널 자체를 가운데 정렬한다. 탭 악보 캔버스가 760px이므로 여유를 두고 840px로 제한. */
   /* 재생 탭 안의 컨텐츠만 가운데 정렬, 패널 테두리는 화면 전체 폭 유지 */
@@ -330,7 +335,7 @@
 
 <div class="panel hidden" id="playPanel">
   <div class="row practiceHide">
-    <label style="width:auto"><input type="checkbox" id="countInEnabled" checked> 준비박 세기 (오디오 싱크의 박자 1마디, <span id="countInBeatsShow">4</span>박)</label>
+    <span class="hint">준비박 = 오디오 싱크의 박자 1마디(<span id="countInBeatsShow">4</span>박). 준비박·반복은 재생 범위마다 따로 저장된다.</span>
   </div>
   <div id="playSettings" class="practiceHide">
     <div id="speedSection">
@@ -340,13 +345,14 @@
     </div>
     <div id="playModeRows">
       <div class="modeRow">
-        <label style="width:auto"><input type="checkbox" id="loopEnabled"> 구간 반복</label>
-      </div>
-      <div class="modeRow">
         <label><input type="radio" name="playMode" value="all" checked> 전체 재생</label>
+        <label style="width:auto"><input type="checkbox" data-countin="all" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="all"> 반복</label>
       </div>
       <div class="modeRow">
         <label><input type="radio" name="playMode" value="once1"> 일부 재생 1</label>
+        <label style="width:auto"><input type="checkbox" data-countin="once1" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="once1"> 반복</label>
         <input type="number" data-range-start="once1" min="1" value="1" class="narrow">
         <button data-set-start="once1">현재→시작</button>
         ~
@@ -355,6 +361,8 @@
       </div>
       <div class="modeRow">
         <label><input type="radio" name="playMode" value="once2"> 일부 재생 2</label>
+        <label style="width:auto"><input type="checkbox" data-countin="once2" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="once2"> 반복</label>
         <input type="number" data-range-start="once2" min="1" value="1" class="narrow">
         <button data-set-start="once2">현재→시작</button>
         ~
@@ -363,6 +371,8 @@
       </div>
       <div class="modeRow">
         <label><input type="radio" name="playMode" value="once3"> 일부 재생 3</label>
+        <label style="width:auto"><input type="checkbox" data-countin="once3" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="once3"> 반복</label>
         <input type="number" data-range-start="once3" min="1" value="1" class="narrow">
         <button data-set-start="once3">현재→시작</button>
         ~
@@ -371,6 +381,8 @@
       </div>
       <div class="modeRow">
         <label><input type="radio" name="playMode" value="once4"> 일부 재생 4</label>
+        <label style="width:auto"><input type="checkbox" data-countin="once4" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="once4"> 반복</label>
         <input type="number" data-range-start="once4" min="1" value="1" class="narrow">
         <button data-set-start="once4">현재→시작</button>
         ~
@@ -379,6 +391,8 @@
       </div>
       <div class="modeRow">
         <label><input type="radio" name="playMode" value="once5"> 일부 재생 5</label>
+        <label style="width:auto"><input type="checkbox" data-countin="once5" checked> 준비박</label>
+        <label style="width:auto"><input type="checkbox" data-loop="once5"> 반복</label>
         <input type="number" data-range-start="once5" min="1" value="1" class="narrow">
         <button data-set-start="once5">현재→시작</button>
         ~
@@ -519,8 +533,6 @@ const exitPracticeBtn = document.getElementById('exitPracticeBtn');
 const measureLabelEl = document.getElementById('measureLabel');
 const measureJumpInput = document.getElementById('measureJumpInput');
 const measureTotalEl = document.getElementById('measureTotal');
-const loopEnabledInput = document.getElementById('loopEnabled');
-const countInEnabledInput = document.getElementById('countInEnabled');
 const countInBeatsShow = document.getElementById('countInBeatsShow');
 const beatBoxesEl = document.getElementById('beatBoxes');
 const speedButtonsEl = document.getElementById('speedButtons');
@@ -535,6 +547,16 @@ for (const key of RANGE_KEYS) {
   };
 }
 const playModeRadios = Array.from(document.querySelectorAll('input[name="playMode"]'));
+// 준비박·구간 반복은 재생 범위(전체/일부 1~5)마다 따로 둔다 — 범위를 바꾸면 그 범위의 설정이 적용된다.
+const MODE_KEYS = ['all', ...RANGE_KEYS];
+const modeOptionInputs = {};
+for (const key of MODE_KEYS) {
+  modeOptionInputs[key] = {
+    countIn: document.querySelector(`[data-countin="${key}"]`),
+    loop: document.querySelector(`[data-loop="${key}"]`)
+  };
+}
+function isLoopEnabled() { return modeOptionInputs[getPlayMode()].loop.checked; }
 
 function status(msg) { statusEl.textContent = msg; }
 // 캔버스는 창이 좁으면 CSS(max-width:100%)로 줄어드는데 마우스 좌표(offsetX/Y)는
@@ -582,7 +604,7 @@ function measureDuration() { return (+beatsPerBarInput.value || 4) * beatInterva
 function measureStartTime(i) { return (startTime || 0) + i * measureDuration(); }
 // 준비박은 재생 기능이다(오디오 싱크와 무관). 길이는 오디오 싱크의 박자 설정을
 // 그대로 가져와 1마디분으로 고정한다 — 재생 화면의 카운트 박스 개수와 항상 같다.
-function countInBeats() { return countInEnabledInput.checked ? (+beatsPerBarInput.value || 4) : 0; }
+function countInBeats() { return modeOptionInputs[getPlayMode()].countIn.checked ? (+beatsPerBarInput.value || 4) : 0; }
 function countInStartTime(i) { return measureStartTime(i) - countInBeats() * beatInterval(); }
 
 // 위 매핑은 전부 "원본 오디오 안의 시간" 기준이고 연습 속도와 무관하다.
@@ -859,11 +881,13 @@ function saveState() {
     bpm: +bpmInput.value,
     beatsPerBar: +beatsPerBarInput.value,
     beatUnit: +beatUnitInput.value,
-    countInEnabled: countInEnabledInput.checked,
     startTime: startTime,
     practiceSpeed: activeSpeed,
     playMode: getPlayMode(),
-    loopEnabled: loopEnabledInput.checked,
+    modeOptions: Object.fromEntries(MODE_KEYS.map(key => [key, {
+      countIn: modeOptionInputs[key].countIn.checked,
+      loop: modeOptionInputs[key].loop.checked
+    }])),
     ranges: Object.fromEntries(RANGE_KEYS.map(key => [key, {
       start: +rangeInputs[key].start.value || 1,
       end: +rangeInputs[key].end.value || 1
@@ -949,11 +973,16 @@ async function loadProjectFromFiles(song, name) {
     beatsPerBarInput.value = saved.beatsPerBar ?? 4;
     // 분모가 없던 시절 저장값은 전부 4분음표 기준이었다(타이밍이 그대로 유지된다).
     beatUnitInput.value = saved.beatUnit ?? 4;
-    // 예전 저장값(준비박 개수)은 0보다 크면 "켜짐"으로 옮겨온다.
-    countInEnabledInput.checked = saved.countInEnabled ?? ((saved.countInBeats ?? 0) > 0);
     startTime = audioBuffer ? (saved.startTime ?? 0) : null;
     setPlayMode(saved.playMode || 'all');
-    loopEnabledInput.checked = !!saved.loopEnabled;
+    // 범위별 설정이 없던 시절의 전역 값(countInEnabled/loopEnabled, 더 예전엔 준비박 개수)은
+    // 모든 범위에 똑같이 옮겨온다.
+    const oldCountIn = saved.countInEnabled ?? ((saved.countInBeats ?? 0) > 0);
+    for (const key of MODE_KEYS) {
+      const o = (saved.modeOptions && saved.modeOptions[key]) || {};
+      modeOptionInputs[key].countIn.checked = o.countIn ?? oldCountIn;
+      modeOptionInputs[key].loop.checked = o.loop ?? !!saved.loopEnabled;
+    }
     for (const key of RANGE_KEYS) {
       const r = (saved.ranges && saved.ranges[key]) || {};
       rangeInputs[key].start.value = r.start || 1;
@@ -971,10 +1000,12 @@ async function loadProjectFromFiles(song, name) {
     bpmInput.value = detectedMeta ? detectedMeta.bpm : 120;
     beatsPerBarInput.value = 4;
     beatUnitInput.value = 4;
-    countInEnabledInput.checked = true;
     startTime = audioBuffer ? 0 : null;
     setPlayMode('all');
-    loopEnabledInput.checked = false;
+    for (const key of MODE_KEYS) {
+      modeOptionInputs[key].countIn.checked = true;
+      modeOptionInputs[key].loop.checked = false;
+    }
     for (const key of RANGE_KEYS) {
       rangeInputs[key].start.value = 1;
       rangeInputs[key].end.value = 1;
@@ -2016,8 +2047,10 @@ async function selectSpeed(pct) {
   // 속도를 바꾸면 재생 중이던 소스는 버려야 하므로 지금 마디부터 다시 시작한다.
   if (wasPlaying) startMeasurePlayback();
 }
-loopEnabledInput.addEventListener('change', saveState);
-countInEnabledInput.addEventListener('change', saveState);
+for (const key of MODE_KEYS) {
+  modeOptionInputs[key].countIn.addEventListener('change', saveState);
+  modeOptionInputs[key].loop.addEventListener('change', saveState);
+}
 
 // ===== 마디 기반 재생 시작/정지 + rAF 루프 =====
 function startMeasurePlayback() {
@@ -2059,7 +2092,7 @@ function playbackFrameLoop() {
       highlightBeat(state.beatInMeasure);
       const { start0, end0 } = getLoopBounds();
       if (state.globalMeasureIdx > end0) {
-        if (loopEnabledInput.checked) {
+        if (isLoopEnabled()) {
           stopSource();
           startPlaybackAt(start0, false);
         } else {
@@ -2076,7 +2109,7 @@ function playbackFrameLoop() {
       // 악보의 마지막 마디를 지났다. 구간 반복이면 처음으로 되돌리고,
       // 아니면 여기서 끊지 않고 파일 끝까지(아웃트로까지) 그대로 재생한다.
       // 실제 종료는 sourceNode.onended -> handlePlaybackNaturalEnd가 처리한다.
-      if (loopEnabledInput.checked) {
+      if (isLoopEnabled()) {
         const { start0 } = getLoopBounds();
         stopSource();
         startPlaybackAt(start0, false);
