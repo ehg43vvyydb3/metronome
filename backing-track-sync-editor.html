@@ -194,7 +194,7 @@
   .modeRow > label:first-child{width:84px;}
   .modeRow input[type=radio], .modeRow input[type=checkbox]{vertical-align:middle; margin:0 4px 0 0;}
   /* 창이 넓을 때 재생 탭 내용(속도/구간 반복/탭 악보)이 왼쪽에 쏠리지 않도록
-     패널 자체를 가운데 정렬한다. 탭 악보 캔버스가 760px이므로 여유를 두고 840px로 제한. */
+     패널 자체를 가운데 정렬한다. 탭 악보 캔버스도 이 폭(최대 840px)에 맞춰 그린다(normalPlayCanvasWidth). */
   /* 재생 탭 안의 컨텐츠만 가운데 정렬, 패널 테두리는 화면 전체 폭 유지 */
   #playCanvas{
     max-width: 840px;
@@ -2177,8 +2177,14 @@ function computeOptimalPracticeWidth() {
   return Math.max(320, Math.min(maxByWidth, maxByHeight, 2000));
 }
 
+// 평상시에는 위쪽 설정 영역(#playSettings, 최대 840px)의 실제 폭에 맞춰 탭을 그린다 —
+// 고정 760px이면 위 요소들보다 좁아서 오른쪽이 비어 보인다. 패널이 숨겨져 폭이 0이면 760px.
+function normalPlayCanvasWidth() {
+  const w = Math.floor(document.getElementById('playSettings').getBoundingClientRect().width);
+  return w > 0 ? w : 760;
+}
 function updatePlayCanvasWidth() {
-  playCanvasWidth = practiceMode ? computeOptimalPracticeWidth() : 760;
+  playCanvasWidth = practiceMode ? computeOptimalPracticeWidth() : normalPlayCanvasWidth();
   if (mode === 'play') renderPlayWindow();
 }
 function enterPracticeFullscreen() {
@@ -2201,7 +2207,7 @@ function exitPracticeFullscreen() {
 document.addEventListener('fullscreenchange', () => {
   if (!document.fullscreenElement && practiceMode) exitPracticeFullscreen();
 });
-window.addEventListener('resize', () => { if (practiceMode) updatePlayCanvasWidth(); });
+window.addEventListener('resize', () => { if (practiceMode || mode === 'play') updatePlayCanvasWidth(); });
 fullscreenBtn.onclick = enterPracticeFullscreen;
 exitPracticeBtn.onclick = exitPracticeFullscreen;
 
@@ -2237,6 +2243,7 @@ function setMode(m) {
       end.max = measures.length;
       if (!end.value || +end.value > measures.length) end.value = measures.length;
     }
+    updatePlayCanvasWidth(); // 패널이 보인 뒤라야 위 요소들의 폭을 잴 수 있다
     renderPlayWindow();
   }
 }
