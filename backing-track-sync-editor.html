@@ -156,10 +156,11 @@
   }
   /* 박자박스는 하나뿐이다 — 준비박 카운트와 재생 중 박자 표시가 같은 박스에서
      같은 방식으로 반짝인다(둘을 따로 두면 볼 곳이 두 군데가 된다). */
+  /* 시작 버튼 줄 안에서 오른쪽 끝으로 붙인다(margin-left:auto) — 한 줄로 보이게. */
   #beatBoxes{
     display:flex;
     gap:8px;
-    margin:10px 0;
+    margin-left:auto;
     flex-wrap:wrap;
     align-items:center;
   }
@@ -202,7 +203,7 @@
     margin-right: auto;
   }
   /* 위쪽 컨트롤(속도/구간/시작버튼)도 가운데로 보내고 싶으면 아래도 추가 */
-  #playSettings, #beatBoxes, #playPanel > .row{
+  #playSettings, #playPanel > .row{
     max-width: 840px;
     margin-left: auto;
     margin-right: auto;
@@ -214,7 +215,6 @@
   body.practice-mode #playPanel .practiceHide{display:none !important;}
   body.practice-mode #playPanel{margin:0; padding:0;}
   body.practice-mode #playCanvas,
-  body.practice-mode #beatBoxes,
   body.practice-mode #playPanel > .row{max-width: none; margin-left: 0; margin-right: 0;}
   #exitPracticeBtn{position:fixed; top:10px; right:10px; z-index:10;}
 </style>
@@ -409,8 +409,8 @@
     <span id="measureLabel" class="practiceHide">마디</span>
     <input type="number" id="measureJumpInput" min="1" value="1" class="narrow practiceHide">
     <span class="practiceHide">/ <span id="measureTotal">0</span></span>
+    <div id="beatBoxes"></div>
   </div>
-  <div id="beatBoxes"></div>
   <canvas id="playCanvas" width="760" height="400"></canvas>
 </div>
 
@@ -2153,7 +2153,6 @@ function computeOptimalPracticeWidth() {
   for (const el of rowEls) rowHeight += el.getBoundingClientRect().height;
   const chromeHeight =
     rowHeight +
-    (beatBoxesEl ? beatBoxesEl.getBoundingClientRect().height : 0) +
     parseFloat(getComputedStyle(document.body).paddingTop) +
     parseFloat(getComputedStyle(document.body).paddingBottom) +
     24;
